@@ -80,10 +80,6 @@ Zero config required. `hexr build` generates everything from your Python source.
 
 See [VOLUNTEER_WEEKEND_GUIDE.md](https://github.com/hexrdev/examples/blob/main/VOLUNTEER_WEEKEND_GUIDE.md) for the complete walkthrough with troubleshooting.
 
-## Admin Operations
-
-See [ADMIN_OPS_GUIDE.md](ADMIN_OPS_GUIDE.md) for invite code management, tenant monitoring, credit adjustment, and emergency operations.
-
 ## Architecture
 
 ```
