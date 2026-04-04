@@ -22,7 +22,7 @@ Save your API key (`hxr_live_...`).
 
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
-pip install hexr-sdk --index-url https://pypi.hexr.cloud/simple/
+pip install "hexr-sdk[cli]" --extra-index-url https://pypi.hexr.cloud/simple/
 hexr login --key hxr_live_YOUR_API_KEY_HERE
 ```
 

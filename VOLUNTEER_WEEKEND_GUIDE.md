@@ -104,8 +104,10 @@ cd examples
 
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
-pip install hexr-sdk --index-url https://pypi.hexr.cloud/simple/
+pip install "hexr-sdk[cli]" --extra-index-url https://pypi.hexr.cloud/simple/
 ```
+
+> **Note:** `hexr-sdk[cli]` installs the Hexr CLI (`hexr build`, `hexr push`, `hexr deploy`). The `--extra-index-url` flag tells pip to check the Hexr package registry in addition to public PyPI.
 
 ### 2.3 Log in to Hexr Cloud
 
@@ -283,8 +285,8 @@ Look at the source code to understand the patterns:
 ### "pip install hexr-sdk" fails
 
 ```bash
-# Make sure you specify the Hexr PyPI index
-pip install hexr-sdk --index-url https://pypi.hexr.cloud/simple/
+# Use --extra-index-url (not --index-url) so pip also checks public PyPI for dependencies
+pip install "hexr-sdk[cli]" --extra-index-url https://pypi.hexr.cloud/simple/
 ```
 
 ### "hexr login" fails
