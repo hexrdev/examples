@@ -77,14 +77,17 @@ curl -s -X POST \
 
 Save the `api_key` from the response.
 
-### What Just Happened
+### What Just Happened — Your Own Hexr Cloud Tenant
 
-The system automatically provisioned:
-- A **tenant** with 100 Hexr Compute Units (HCU)
-- A **Kubernetes namespace** (`tenant-YOUR-NAME`) with network isolation
-- A **NetworkPolicy** preventing cross-tenant traffic
-- A **ResourceQuota** (3 pods max — enough for the 3 agents)
-- Your **API key** for CLI and API access
+The system automatically provisioned **your own isolated environment:**
+
+- **Your Tenant:** A dedicated identity (`tnt_xxxx`) with 100 Hexr Compute Units (HCU)
+- **Your Namespace:** `tenant-YOUR-NAME` — a Kubernetes namespace that is entirely yours
+- **Network Isolation:** A `NetworkPolicy` blocks all cross-tenant traffic. Your agents can only talk to each other.
+- **Resource Quota:** 3 pods max, 2 CPU, 4Gi memory — enough for the 3 example agents
+- **Your API Key:** Authenticates all CLI commands to your tenant only
+
+> **Multi-tenancy in action:** Every volunteer gets their own namespace with the same isolation guarantees. You cannot see or access anyone else's agents, and they cannot access yours. This is the same tenant isolation model Hexr provides in production.
 
 ---
 
@@ -93,8 +96,8 @@ The system automatically provisioned:
 ### 2.1 Clone the example agents repo
 
 ```bash
-git clone https://github.com/hexr-dev/hexr-examples.git
-cd hexr-examples
+git clone https://github.com/hexrdev/examples.git
+cd examples
 ```
 
 ### 2.2 Create a virtualenv and install the Hexr SDK
