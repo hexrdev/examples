@@ -52,7 +52,7 @@ Three **A2A (Agent-to-Agent)** agents that collaborate via Hexr's protocol — a
 
 1. Go to **https://app.hexr.cloud/onboard**
 2. Fill in:
-   - **Team Name:** Your name or team name (e.g., `alice-team`)
+   - **Organization Name:** Your name or team name (e.g., `alice-team`)
    - **Email:** Your email
    - **Invite Code:** `HEXR-VOLUNTEER-2026`
 3. Click **Create Account**
@@ -84,7 +84,7 @@ The system automatically provisioned **your own isolated environment:**
 - **Your Tenant:** A dedicated identity (`tnt_xxxx`) with 100 Hexr Compute Units (HCU)
 - **Your Namespace:** `tenant-YOUR-NAME` — a Kubernetes namespace that is entirely yours
 - **Network Isolation:** A `NetworkPolicy` blocks all cross-tenant traffic. Your agents can only talk to each other.
-- **Resource Quota:** 3 pods max, 2 CPU, 4Gi memory — enough for the 3 example agents
+- **Resource Quota:** 3 pods max, 6 CPU limits, 8Gi memory — enough for the 3 example agents (each agent pod runs 4 containers)
 - **Your API Key:** Authenticates all CLI commands to your tenant only
 
 > **Multi-tenancy in action:** Every volunteer gets their own namespace with the same isolation guarantees. You cannot see or access anyone else's agents, and they cannot access yours. This is the same tenant isolation model Hexr provides in production.
@@ -121,7 +121,14 @@ Verify:
 hexr login --status
 ```
 
-You should see your tenant name, namespace, and remaining credits.
+You should see your tenant name and authentication status. To check your credits:
+
+```bash
+curl -s -H "Authorization: Bearer hxr_live_YOUR_KEY" \
+  https://api.hexr.cloud/v1/auth/verify | python3 -m json.tool
+```
+
+Look for `credit_balance` in the response (you start with 100 HCU).
 
 ---
 
@@ -239,11 +246,11 @@ kubectl exec -n tenant-YOUR_TENANT \
 
 ```bash
 kubectl exec -n tenant-YOUR_TENANT \
-  YOUR_TENANT-content-creation-crew-a2a -c envoy-sidecar -- \
+  YOUR_TENANT-content-creation-crew-a2a -c agent -- \
   curl -s localhost:9901/certs 2>/dev/null | head -20
 ```
 
-You'll see: `spiffe://hexr.cloud/YOUR_TENANT/content-creation-crew-a2a/...`
+You'll see: `spiffe://hexr.cloud/YOUR_TENANT/...`
 
 ### Check Your Credits
 
@@ -252,7 +259,7 @@ curl -s -H "Authorization: Bearer hxr_live_YOUR_KEY" \
   https://api.hexr.cloud/v1/auth/verify | python3 -m json.tool
 ```
 
-Look for `credits_remaining` — each build, deploy, and agent call costs HCU.
+Look for `credit_balance` — each build, deploy, and agent call costs HCU.
 
 ### View the Agent Card
 
@@ -261,7 +268,7 @@ Each agent publishes a `.well-known/agent.json` describing its A2A capabilities:
 ```bash
 kubectl exec -n tenant-YOUR_TENANT \
   YOUR_TENANT-content-creation-crew-a2a -c agent -- \
-  curl -s http://localhost:15006/.well-known/agent.json
+  curl -s http://localhost:8090/.well-known/agent.json
 ```
 
 ---

@@ -3,10 +3,10 @@ A2A Due Diligence Orchestrator — HEXR A2A Example
 ==================================================
 
 Demonstrates agent-to-agent communication by orchestrating two independent
-deep-agent pods:
+agent pods:
 
-1. CrewAI Content Crew (crewaai_a2a) — researches a topic and produces content
-2. LangChain Financial Analysis (langchain_a2a) — runs a 5-agent analysis pipeline
+1. Content Crew — researches a topic and produces content
+2. Financial Analysis — runs a 5-agent analysis pipeline
 
 This orchestrator:
     - Receives a company/topic via A2A message
@@ -14,6 +14,13 @@ This orchestrator:
     - Collects artifacts from both
     - Synthesizes a combined due-diligence brief
     - Returns the brief as an A2A artifact
+
+Hexr Concepts Demonstrated:
+  - @hexr_agent(a2a=True) → A2A-discoverable agent (docs.hexr.dev/sdk/hexr-a2a)
+  - A2AClient             → Call other agents via A2A protocol
+  - A2ABridge             → Expose this agent over A2A
+  - hexr_llm()            → LLM wrapper with OTel + Guard (docs.hexr.dev/sdk/hexr-llm)
+  - hexr_tool()           → Cloud creds via SPIFFE (docs.hexr.dev/sdk/hexr-tool)
 
 Architecture:
     External caller -> Envoy -> Orchestrator sidecar :8090 -> Bridge :8080

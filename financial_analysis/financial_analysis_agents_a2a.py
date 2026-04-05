@@ -2,7 +2,7 @@
 LangChain Multi-Agent Financial Analysis System - HEXR A2A Enhanced
 ===================================================================
 
-A comprehensive financial analysis system using LangChain with modern function-based patterns.
+A comprehensive financial analysis system with specialized agents.
 
 Agents:
 - Research Agent: Gathers market data and financial information
@@ -13,8 +13,12 @@ Agents:
 
 Pattern: Function-based tools with HEXR enterprise integration
 
-HEXR A2A Integration: The orchestrator agent exposes an A2A Bridge so
-external agents can request financial analysis via the A2A protocol.
+Hexr Concepts Demonstrated:
+  - @hexr_agent    → Register agent classes, discovered by `hexr build` (docs.hexr.dev/sdk/hexr-agent)
+  - hexr_tool()    → Cloud credentials via SPIFFE identity (docs.hexr.dev/sdk/hexr-tool)
+  - hexr_llm()     → LLM client wrapper with OTel + LLM Guard (docs.hexr.dev/sdk/hexr-llm)
+  - A2ABridge      → Expose agent over A2A protocol (docs.hexr.dev/sdk/hexr-a2a)
+  - VaultClient    → Fetch secrets via SPIFFE identity (docs.hexr.dev/sdk/vault)
 
 A2A Flow:
     External caller -> Envoy -> A2A Sidecar :8090 -> Bridge :8080 /execute

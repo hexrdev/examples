@@ -2,6 +2,19 @@
 
 Example agents for [Hexr Cloud](https://hexr.cloud) demonstrating agent-to-agent (A2A) communication with automatic SPIFFE identity, mTLS encryption, OPA policy enforcement, and LLM observability.
 
+**Documentation:** [docs.hexr.dev](https://docs.hexr.dev)
+
+## Hexr Concepts Used
+
+| Concept | What It Does | Docs |
+|---------|-------------|------|
+| `@hexr_agent` | Decorator that registers your class as a Hexr agent. `hexr build` discovers these via AST analysis. | [docs.hexr.dev/sdk/hexr-agent](https://docs.hexr.dev/sdk/hexr-agent) |
+| `hexr_tool()` | Request cloud credentials (AWS, GCP) via SPIFFE identity. No API keys in code. | [docs.hexr.dev/sdk/hexr-tool](https://docs.hexr.dev/sdk/hexr-tool) |
+| `hexr_llm()` | Wrap any LLM client (OpenAI, Anthropic) for automatic OTel tracing + LLM Guard scanning. | [docs.hexr.dev/sdk/hexr-llm](https://docs.hexr.dev/sdk/hexr-llm) |
+| `A2ABridge` | Expose your agent over the A2A protocol so other agents can call it. | [docs.hexr.dev/sdk/hexr-a2a](https://docs.hexr.dev/sdk/hexr-a2a) |
+| `VaultClient` | Fetch secrets (API keys) from Hexr Vault using your SPIFFE identity. | [docs.hexr.dev/sdk/vault](https://docs.hexr.dev/sdk/vault) |
+| LLM Guard | Automatic prompt/output scanning for prompt injection, PII, toxicity. Configured via SDK. | [docs.hexr.dev/security/llm-guard](https://docs.hexr.dev/security/llm-guard) |
+
 ## Agents
 
 | Directory | Agent | Description |

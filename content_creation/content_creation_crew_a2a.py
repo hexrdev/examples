@@ -2,16 +2,20 @@
 Content Creation Pipeline - HEXR A2A Enhanced
 ==============================================
 
-A content creation system using LangChain with specialized agents:
+A content creation system with specialized agents:
 - Research Agent: Investigates topics and gathers information
 - Writer Agent: Creates engaging content based on research
 - Editor Agent: Reviews and refines content for quality
 
 Pattern: Sequential pipeline with hexr_llm for LLM calls
 
-HEXR Integration: Enhanced with @hexr_agent(a2a=True) for agent-to-agent
-communication. The orchestrator exposes an A2A Bridge so external agents
-can send it a topic via the A2A protocol and receive the finished content.
+Hexr Concepts Demonstrated:
+  - @hexr_agent    → Register agent classes, discovered by `hexr build` (docs.hexr.dev/sdk/hexr-agent)
+  - hexr_tool()    → Cloud credentials via SPIFFE identity (docs.hexr.dev/sdk/hexr-tool)
+  - hexr_llm()     → LLM client wrapper with OTel + LLM Guard (docs.hexr.dev/sdk/hexr-llm)
+  - A2ABridge      → Expose agent over A2A protocol (docs.hexr.dev/sdk/hexr-a2a)
+  - VaultClient    → Fetch secrets via SPIFFE identity (docs.hexr.dev/sdk/vault)
+  - LLM Guard      → Automatic prompt/output scanning (docs.hexr.dev/security/llm-guard)
 
 A2A Flow:
     External caller -> Envoy -> A2A Sidecar :8090 -> Bridge :8080 /execute
@@ -44,10 +48,13 @@ def _get_openai_key() -> str | None:
     return os.environ.get("OPENAI_API_KEY")
 
 
-# ── hexr_llm: wrap the OpenAI client for automatic OTel instrumentation ──
+# ── hexr_llm: wrap the OpenAI client for automatic OTel tracing + LLM Guard ──
 _api_key = _get_openai_key()
 _llm_client = hexr_llm(openai.OpenAI(api_key=_api_key)) if _api_key else None
 
+
+# NOTE: tenant= is a source-code default. It's overridden at build time by:
+#   hexr build content_creation_crew_a2a.py --tenant YOUR_TENANT
 
 @hexr.hexr_agent(
     name="research_agent",
@@ -59,6 +66,7 @@ class ResearchAgent:
 
     def __init__(self):
         logger.info("🔬 Initializing Research Agent")
+        # hexr_tool: request AWS S3 credentials via SPIFFE identity (no API keys needed)
         self.s3 = hexr.hexr_tool('aws_s3')
 
     def research(self, topic: str) -> str:
