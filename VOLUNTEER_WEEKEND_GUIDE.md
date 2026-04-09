@@ -52,7 +52,7 @@ Three **A2A (Agent-to-Agent)** agents that collaborate via Hexr's protocol — a
 
 1. Go to **https://app.hexr.cloud/onboard**
 2. Fill in:
-   - **Organization Name:** Your name or team name (e.g., `alice-team`)
+   - **Name:** Your name or team name (e.g., `alice-team`)
    - **Email:** Your email
    - **Invite Code:** `HEXR-VOLUNTEER-2026`
 3. Click **Create Account**
@@ -128,7 +128,7 @@ curl -s -H "Authorization: Bearer hxr_live_YOUR_KEY" \
   https://api.hexr.cloud/v1/auth/verify | python3 -m json.tool
 ```
 
-Look for `credit_balance` in the response (you start with 100 HCU).
+Look for `credit_balance` under `tenant` in the response (you start with 100 HCU).
 
 ---
 
@@ -250,7 +250,7 @@ kubectl exec -n tenant-YOUR_TENANT \
   curl -s localhost:9901/certs 2>/dev/null | head -20
 ```
 
-You'll see: `spiffe://hexr.cloud/YOUR_TENANT/...`
+You'll see: `spiffe://hexr.cloud/YOUR_TENANT/content-creation-crew-a2a/...`
 
 ### Check Your Credits
 
@@ -259,7 +259,7 @@ curl -s -H "Authorization: Bearer hxr_live_YOUR_KEY" \
   https://api.hexr.cloud/v1/auth/verify | python3 -m json.tool
 ```
 
-Look for `credit_balance` — each build, deploy, and agent call costs HCU.
+Look for `credit_balance` under `tenant` — each build, deploy, and agent call costs HCU.
 
 ### View the Agent Card
 
@@ -283,6 +283,7 @@ Look at the source code to understand the patterns:
 | `hexr_llm()` wrapper | Wraps the OpenAI client for automatic tracing of every LLM call |
 | `A2ABridge` | Entry point — connects your handler function to the A2A sidecar |
 | `A2AClient` | In the orchestrator — sends A2A requests to sibling agents via K8s DNS |
+| `hexr_tool()` | In worker agents — requests cloud credentials (e.g., AWS S3) via SPIFFE identity exchange |
 | `VaultClient` | Fetches the OpenAI API key from Hexr Vault (no hardcoded secrets) |
 
 ---
@@ -350,6 +351,7 @@ You deployed a 3-agent A2A team to Hexr Cloud. Here's what the platform handled 
 | **mTLS** | All inter-agent traffic encrypted via Envoy sidecars with X.509 SVIDs |
 | **A2A Protocol** | Agents communicated via JSON-RPC 2.0 with task lifecycle management |
 | **OPA Policy** | Authorization checked on every request — only your agents can talk to each other |
+| **Cloud Credentials** | `hexr_tool('aws_s3')` exchanged SPIFFE JWT-SVID for temporary AWS credentials via STS — no hardcoded keys |
 | **Network Isolation** | Your tenant namespace has deny-all NetworkPolicy — no cross-tenant traffic |
 | **LLM Observability** | Every LLM call traced: model, tokens, latency, cost — via `hexr_llm()` |
 | **HCU Metering** | Credits decremented for builds, deploys, agent runtime, A2A messages |
