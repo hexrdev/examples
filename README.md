@@ -1,79 +1,83 @@
-# Hexr Examples — A2A Agent Team
+# Hexr Examples
 
-Example agents for [Hexr Cloud](https://hexr.cloud) demonstrating agent-to-agent (A2A) communication with automatic SPIFFE identity, mTLS encryption, OPA policy enforcement, and LLM observability.
+Production-ready agent examples for [Hexr Cloud](https://hexr.cloud) — covering every capability of the Hexr agent runtime security platform across multiple frameworks, clouds, and use cases.
 
-**Documentation:** [docs.hexr.dev](https://docs.hexr.dev)
+**Documentation:** [docs.hexr.dev](https://docs.hexr.dev) · **Platform:** [app.hexr.cloud](https://app.hexr.cloud)
 
-## Hexr Concepts Used
+## Examples Index
+
+### Flagship Demos (Tier 3) — Cover Entire Platform
+
+| Demo | Frameworks | Capabilities | Status |
+|------|-----------|-------------|--------|
+| [**F1: The Governed Agent**](flagship/governed-agent/) | LangChain + CrewAI | 17/17 — GRC compliance evidence, 18 agentic controls, 5 frameworks, identity, OPA, progressive enforcement, audit export | 🔲 Planned |
+| [**F2: The Rogue Agent**](flagship/rogue-agent/) | Raw Python + LangChain + CrewAI | 17/17 — progressive enforcement, threat chains, Impact Reach, all security layers | 🔲 Planned |
+
+### Capability Deep-Dives (Tier 2)
+
+| Example | Capability | Framework | Status |
+|---------|-----------|-----------|--------|
+| `capabilities/identity-spiffe/` | SPIFFE per-process identity | Raw Python | 🔲 |
+| `capabilities/vault-secrets/` | SPIFFE-native secret management | Raw Python | 🔲 |
+| `capabilities/gateway-mcp/` | REST → MCP tool translation | LangChain | 🔲 |
+| `capabilities/sandbox-exec/` | Firecracker microVM code exec | Claude SDK | 🔲 |
+| `capabilities/browse/` | Sandboxed browser (Stagehand) | Raw Python | 🔲 |
+| `capabilities/llm-guard/` | Prompt injection / PII scanning | OpenAI | 🔲 |
+| `capabilities/a2a-protocol/` | Agent-to-agent communication | Multi | 🔲 |
+| `capabilities/multi-cloud-creds/` | SPIFFE → AWS STS + GCP WIF + Azure | Raw Python | 🔲 |
+| `capabilities/opa-governance/` | Policy authoring + enforcement | Raw Python | 🔲 |
+| `capabilities/progressive-enforcement/` | Simulate → Audit → Enforce | Raw Python | 🔲 |
+| `capabilities/threat-chains/` | 6 threat chain detectors | Multi | 🔲 |
+| `capabilities/compliance-packs/` | SOC 2, NIST, ISO, PCI, EU AI Act | Raw Python | 🔲 |
+| `capabilities/metering-hcu/` | HCU cost attribution | Raw Python | 🔲 |
+| `capabilities/stripe-acp/` | Stripe SharedPaymentTokens | Claude SDK | 🔲 |
+| `capabilities/google-a2a/` | Google A2A protocol interop | Google ADK | 🔲 |
+| `capabilities/hexr-cloud-deploy/` | Full cloud deploy lifecycle | CLI | 🔲 |
+
+### Framework Examples (Tier 1) — One Per Framework
+
+| Example | Framework | Agent | Status |
+|---------|-----------|-------|--------|
+| `frameworks/raw-python/` | Raw Python | Data Summarizer | 🔲 |
+| `frameworks/langchain/` | LangChain | Research Assistant | 🔲 |
+| `frameworks/crewai/` | CrewAI | Content Creation Crew | 🔲 |
+| `frameworks/strands-aws/` | Strands (AWS) | Financial Analyst | 🔲 |
+| `frameworks/claude-sdk/` | Claude SDK (Anthropic) | Code Reviewer | 🔲 |
+| `frameworks/google-adk/` | Google ADK | Task Planner | 🔲 |
+| `frameworks/openai-agents/` | OpenAI Agents SDK | Customer Support | 🔲 |
+
+### A2A Team (Volunteer Weekend Examples)
+
+| Example | Agent | Description |
+|---------|-------|-------------|
+| [content_creation/](content_creation/) | Content Pipeline | 3-stage pipeline: Research → Write → Edit |
+| [financial_analysis/](financial_analysis/) | Financial Analysis | 5-agent pipeline: Market → Research → Model → Risk → Synthesis |
+| [orchestrator/](orchestrator/) | Due Diligence Orchestrator | Fan-out/fan-in: calls both workers via A2A |
+
+## Hexr SDK Concepts
 
 | Concept | What It Does | Docs |
 |---------|-------------|------|
-| `@hexr_agent` | Decorator that registers your class as a Hexr agent. `hexr build` discovers these via AST analysis. | [docs.hexr.dev/sdk/hexr-agent](https://docs.hexr.dev/sdk/hexr-agent) |
-| `hexr_tool()` | Request cloud credentials (AWS, GCP) via SPIFFE identity. No API keys in code. | [docs.hexr.dev/sdk/hexr-tool](https://docs.hexr.dev/sdk/hexr-tool) |
-| `hexr_llm()` | Wrap any LLM client (OpenAI, Anthropic) for automatic OTel tracing + LLM Guard scanning. | [docs.hexr.dev/sdk/hexr-llm](https://docs.hexr.dev/sdk/hexr-llm) |
-| `A2ABridge` | Expose your agent over the A2A protocol so other agents can call it. | [docs.hexr.dev/sdk/hexr-a2a](https://docs.hexr.dev/sdk/hexr-a2a) |
-| `VaultClient` | Fetch secrets (API keys) from Hexr Vault using your SPIFFE identity. | [docs.hexr.dev/sdk/vault](https://docs.hexr.dev/sdk/vault) |
-| LLM Guard | Automatic prompt/output scanning for prompt injection, PII, toxicity. Configured via SDK. | [docs.hexr.dev/security/llm-guard](https://docs.hexr.dev/security/llm-guard) |
-
-## Agents
-
-| Directory | Agent | Description |
-|-----------|-------|-------------|
-| `content_creation/` | Content Pipeline | 3-stage sequential pipeline: Research → Write → Edit |
-| `financial_analysis/` | Financial Analysis | 5-agent pipeline: Market Data → Research → Model → Risk → Synthesis |
-| `orchestrator/` | Due Diligence Orchestrator | Fan-out/fan-in: calls both workers in parallel via A2A, synthesizes results |
+| `@hexr_agent` | Register agent class — `hexr build` discovers via AST | [docs.hexr.dev/sdk/hexr-agent](https://docs.hexr.dev/sdk/hexr-agent) |
+| `hexr_tool()` | Cloud credentials via SPIFFE identity (no API keys) | [docs.hexr.dev/sdk/hexr-tool](https://docs.hexr.dev/sdk/hexr-tool) |
+| `hexr_llm()` | Wrap any LLM client for OTel + LLM Guard | [docs.hexr.dev/sdk/hexr-llm](https://docs.hexr.dev/sdk/hexr-llm) |
+| `VaultClient` | Fetch secrets via SPIFFE identity | [docs.hexr.dev/sdk/vault](https://docs.hexr.dev/sdk/vault) |
+| `A2ABridge` | Expose agent over A2A protocol | [docs.hexr.dev/sdk/hexr-a2a](https://docs.hexr.dev/sdk/hexr-a2a) |
+| `A2AClient` | Call remote agents via A2A | [docs.hexr.dev/sdk/hexr-a2a](https://docs.hexr.dev/sdk/hexr-a2a) |
+| `GatewayClient` | Access REST APIs as MCP tools | [docs.hexr.dev/sdk/gateway](https://docs.hexr.dev/sdk/gateway) |
+| `sandbox.exec()` | Run code in Firecracker microVM | [docs.hexr.dev/sdk/sandbox](https://docs.hexr.dev/sdk/sandbox) |
+| `browser.browse()` | Sandboxed browser in microVM | [docs.hexr.dev/sdk/browser](https://docs.hexr.dev/sdk/browser) |
 
 ## Quick Start
 
-### 1. Sign up at [app.hexr.cloud/onboard](https://app.hexr.cloud/onboard)
-
-Use invite code: `HEXR-VOLUNTEER-2026`
-
-Save your API key (`hxr_live_...`).
-
-### 2. Install SDK & login
-
 ```bash
-python3 -m venv .venv && source .venv/bin/activate
+# Install SDK
 pip install "hexr-sdk[cli]" --extra-index-url https://pypi.hexr.cloud/simple/
-hexr login --key hxr_live_YOUR_API_KEY_HERE
-```
+hexr login --key $HEXR_API_KEY
 
-### 3. Build, push, deploy (repeat for each agent)
-
-Deploy workers first, then the orchestrator:
-
-```bash
-# Content agent
-cd content_creation
-hexr build content_creation_crew_a2a.py --tenant YOUR_TENANT
-hexr push --cloud --tenant YOUR_TENANT
-hexr deploy .hexr --cloud
-cd ..
-
-# Financial agent
-cd financial_analysis
-hexr build financial_analysis_agents_a2a.py --tenant YOUR_TENANT
-hexr push --cloud --tenant YOUR_TENANT
-hexr deploy .hexr --cloud
-cd ..
-
-# Orchestrator (depends on both workers)
-cd orchestrator
-hexr build due_diligence_orchestrator.py --tenant YOUR_TENANT
-hexr push --cloud --tenant YOUR_TENANT
-hexr deploy .hexr --cloud
-cd ..
-```
-
-### 4. Test
-
-```bash
-kubectl exec -n tenant-YOUR_TENANT \
-  YOUR_TENANT-due-diligence-orchestrator -c agent -- \
-  curl -s http://localhost:8080/execute -X POST \
-  -H 'Content-Type: application/json' \
-  -d '{"message":{"role":"user","parts":[{"type":"text","text":"Analyze Anthropic"}]}}'
+# Deploy an example (e.g., F1 Agentic Commerce)
+cd flagship/agentic-commerce
+./deploy_all.sh --tenant hexr-internal --cloud
 ```
 
 ## What Hexr Adds Automatically
@@ -84,32 +88,31 @@ Each agent pod gets 4 containers — your code + 3 sidecars:
 |-----------|---------|
 | `agent` | Your Python code |
 | `envoy-sidecar` | mTLS encryption via SPIFFE X.509 SVIDs |
-| `a2a-sidecar` | JSON-RPC 2.0 agent-to-agent protocol, task lifecycle |
-| `pid-mapper` | Per-process identity tracking for SPIRE registration |
-
-Zero config required. `hexr build` generates everything from your Python source.
-
-## Full Guide
-
-See [VOLUNTEER_WEEKEND_GUIDE.md](https://github.com/hexrdev/examples/blob/main/VOLUNTEER_WEEKEND_GUIDE.md) for the complete walkthrough with troubleshooting.
+| `a2a-sidecar` | Agent-to-agent protocol, task lifecycle |
+| `pid-mapper` | Per-process identity tracking for SPIRE |
 
 ## Architecture
 
 ```
-Developer                     Hexr Cloud (GKE)
-─────────                     ────────────────
-hexr build .py       →   AST analysis, Dockerfile, K8s manifests
-hexr push --cloud    →   GCP Cloud Build → Artifact Registry
-hexr deploy --cloud  →   Cloud API → K8s Pod + Envoy + A2A + pid-mapper
+Developer                     Hexr Cloud
+─────────                     ──────────
+hexr build .py       →   AST analysis → Dockerfile + K8s manifests
+hexr push --cloud    →   Cloud Build → Artifact Registry
+hexr deploy --cloud  →   Cloud API → K8s Pod + sidecars
 
-At runtime:
-  SPIRE → SVID per process
-  Envoy → mTLS between agents
-  OPA   → policy enforcement
-  OTel  → traces, metrics, LLM attribution
-  Vault → secrets (OpenAI key, no env vars)
+Runtime security (automatic):
+  SPIRE  → Cryptographic identity per process
+  Envoy  → mTLS between all agents
+  OPA    → Policy enforcement (deterministic, zero LLM cost)
+  Vault  → SPIFFE-native secrets (no env vars)
+  OTel   → Distributed traces + LLM attribution
+  Guard  → Prompt injection / PII scanning
 ```
 
-## License
+## Cloud Agnostic
 
-These examples are provided for the Hexr Volunteer Weekend (April 5-6, 2026). See [hexr.cloud](https://hexr.cloud) for platform details.
+Hexr works on any Kubernetes cluster — GKE, EKS, AKS, bare metal. Cloud credential exchange supports AWS, GCP, and Azure (via SPIFFE → STS/WIF federation). Examples demonstrate multi-cloud access patterns.
+
+## Guides
+
+- [Volunteer Weekend Guide](VOLUNTEER_WEEKEND_GUIDE.md) — Hands-on walkthrough for A2A team examples
