@@ -1,134 +1,157 @@
 # Hexr Examples
 
-Production-ready agent examples for the **Hexr hybrid pivot** — a single Helm install in the customer's Kubernetes cluster that adds per-process SPIFFE identity, mTLS via Envoy sidecars, and A2A protocol bridging to any Python AI agent.
+Reference agent demos for the **Hexr Hybrid runtime** (SDK 0.5.5+).
 
-## Working demos (live as of 2026-06-08)
+## Wedge (what Hexr actually sells)
 
-These three agents are built with `hexr build`, deployed to live data planes, and have been running 14–15 days on two clouds.
+> Audit-grade evidence for AI agents — in your Kubernetes cluster, mapped to
+> your SOC 2, HIPAA, and NIST controls.
 
-| Demo | Framework | Live on | Pattern |
+The SPIFFE / mTLS / A2A plumbing is how Hexr produces that evidence. The
+PDF an auditor signs is the product.
+
+## Topology these demos run on
+
+One Hexr-managed **Control Plane** on GCP, two customer **Data Planes** on
+two different clouds. The DPs pretend to be two independent customers —
+they share no application data; the only thing they have in common is the
+nested SPIRE chain back to the CP root.
+
+| Role | Cloud | Cluster | What lives here |
 |---|---|---|---|
-| [`financial_analysis/`](financial_analysis/) | LangChain (5-agent pipeline) | EKS `tenant-acme-aws` (`acme-aws-acme-due-diligence` 4/4 + `acme-aws-market-analysis-team` 3/3) | `@hexr_agent` + function-based tools + A2A bridge |
-| [`content_creation/`](content_creation/) | CrewAI (3-stage pipeline: research → write → edit) | EKS `tenant-acme-aws` | `@hexr_agent` + `hexr_llm` + A2A bridge |
-| [`orchestrator/`](orchestrator/) | Plain Python fan-out/fan-in over A2A | AKS `tenant-globex-azure` (public LB `20.246.232.160`) | `@hexr_agent(a2a=True)` + `A2AClient` calling both workers in parallel |
+| **CP** | GCP (Hexr accelerator account) | GKE `hexr-cloud-control` | SPIRE root, `hexr-license-api`, `hexr-control-api`, CP dashboard. **Never** holds tenant evidence rows. |
+| **DP-1 / Client 1** | AWS (Hexr accelerator account, posing as `acme-aws`) | EKS `hexr-runtime-eks-1` | `tenant-acme-aws` namespace, downstream SPIRE chained to CP root, `hexr-evidence-api`, DP dashboard |
+| **DP-2 / Client 2** | Azure (Hexr accelerator account, posing as `globex-azure`) | AKS `hexr-runtime-aks-1` | `tenant-globex-azure` namespace, downstream SPIRE chained to CP root, `hexr-evidence-api`, DP dashboard |
 
-All three demos prove the **same SDK contract works on two clouds, two managed-PG flavors (RDS PG16 + Flex PG16), same trust domain (`agents.hexr.cloud`), same chart (`attestor-0.5.5`)**. See hexr spec [§1.26.5.6](../hexr/docs/HEXR_HYBRID_PIVOT_TECH_SPEC.md) for the end-to-end proof.
+Shared SPIFFE trust domain `spiffe://agents.hexr.cloud`. Nested SPIRE — no
+federation handshake — so an agent on AKS can mTLS-call an agent on EKS
+out of the box.
 
-### Build + deploy one
+## The two demos
+
+Each client picked a fundamentally different agent pattern + framework, on
+purpose, to prove Hexr is pattern- and framework-agnostic.
+
+| | [`hybrid/cost-anomaly-investigator/`](hybrid/cost-anomaly-investigator/) | [`hybrid/investment-memo-crew/`](hybrid/investment-memo-crew/) |
+|---|---|---|
+| Client | acme-aws (Client 1) | globex-azure (Client 2) |
+| Cluster | EKS | AKS |
+| Pattern | **Single-agent ReAct** (classic tool-use loop) | **Hierarchical multi-agent** (director + 3 workers) |
+| Framework | LangGraph | CrewAI |
+| LLM | OpenAI gpt-4o-mini | Azure OpenAI gpt-4o |
+| `hexr_tool` story | One agent reads AWS Cost Explorer + GCP BigQuery + Azure Blob in one ReAct loop — same SPIFFE identity, three trust exchanges | Each CrewAI role reads from a different cloud (researcher → Azure Blob, writer → S3, editor → GCS) |
+| Cross-cluster A2A | exposed as a callable A2A service | Legal Editor role calls the cost-investigator on EKS via `A2AClient(spiffe_socket=…)` |
+| Evidence emitted | Per-tool span → SOC 2 CC6.1 row | Per-tool span × 3 + outbound A2A span → SOC 2 CC6.1 / NIST AC-6 rows |
+
+Together they make the auditor-facing pitch obvious:
+
+1. Two customers, two clouds, one CP, one audit story.
+2. An AKS-hosted hierarchical crew calls an EKS-hosted ReAct agent over
+   mTLS without anyone configuring federation. Same trust domain, two CAs
+   inside the same audit pack PDF.
+
+## Canonical build → push → deploy flow
 
 ```bash
-cd financial_analysis
-HEXR_REGISTRY=697675504955.dkr.ecr.us-east-1.amazonaws.com/hexr \
-  hexr build financial_analysis_agents_a2a.py \
-    --tenant acme-aws --target staging
+# 1. Static-analyse + generate Dockerfile + manifests + A2A card
+hexr build <agent>.py --tenant <tenant> --no-mock-mode \
+  --trust-domain agents.hexr.cloud \
+  --pypi-url https://pypi.hexr.cloud/simple/ \
+  --registry <REGISTRY>
 
-# Generated artifacts:
-ls .hexr/
-#   Dockerfile  enterprise_pid_mapper.py  hexr_sdk-0.5.5-cp311-*.whl
-#   manifests/  requirements.txt  build-summary.json
+# 2. Build OCI image and push
+hexr push --tenant <tenant> --registry <REGISTRY> --platform linux/amd64
 
-# Deploy (manifests pass `kubectl apply --dry-run=server` against live EKS):
-kubectl --context hexr-eks-1 apply -f .hexr/manifests/
+# 3. Deploy (Pod + 3 sidecars + Service + NetworkPolicy)
+kubectl config use-context <DP-CONTEXT>
+hexr deploy .hexr --namespace tenant-<tenant>
 ```
 
-## Hexr SDK concepts used by the working demos
+Hard rules — these will trip you up if you skip them:
 
-| Concept | What it does | Used in |
-|---|---|---|
-| `@hexr_agent` | Register agent class — `hexr build` discovers via AST | all three |
-| `@hexr_agent(a2a=True)` | Marks an agent as A2A-discoverable; generates `a2a-agent-card.json` + sidecar wiring | `orchestrator/` |
-| `hexr_tool()` | Cloud credentials via SPIFFE identity (no API keys in pod) | `financial_analysis/` |
-| `hexr_llm()` | Wrap any LLM client for OTel + LLM-Guard prompt/output scanning | all three |
-| `VaultClient` | Fetch secrets via SPIFFE identity | `financial_analysis/`, `content_creation/` |
-| `A2ABridge` | Expose agent over A2A protocol (`/execute` on `:8080`) | all three |
-| `A2AClient` | Call remote agents via A2A | `orchestrator/` |
+- **Never** `kubectl apply -f .hexr/manifests/`. Always `hexr deploy` so the
+  CP gets the registration heartbeat and evidence rows are addressable.
+- **Never** pass `--cloud` to `hexr push` — that flag was the old SaaS path.
+- **Always** `rm -rf .hexr` before a rebuild.
 
-## What Hexr injects automatically
+## Per-cloud one-liners
 
-Every agent pod gets your code + 3 sidecars, all wired by `hexr build`:
+### AWS / EKS — `acme-aws` tenant
 
-| Container | Purpose | Image source |
-|---|---|---|
-| `agent` | Your Python code | built from `.hexr/Dockerfile` |
-| `envoy-sidecar` | mTLS termination via SPIFFE X.509 SVIDs | upstream Envoy |
-| `a2a-sidecar` | A2A protocol task lifecycle on `:8090` | `hexr-a2a-sidecar:v1.0.0` |
-| `pid-mapper` (init) | Per-process identity tracking for SPIRE | `hexr-pod-uid-attestor:v0.1.2` |
+```bash
+export REGISTRY=697675504955.dkr.ecr.us-east-1.amazonaws.com/hexr
+aws ecr get-login-password --region us-east-1 --profile hexr | \
+  docker login --username AWS --password-stdin "$REGISTRY"
 
-## Architecture
-
-```
-Developer                              Hexr Data Plane (EKS / AKS / GKE)
-─────────                              ──────────────────────────────
-hexr build *.py                  →    AST analysis → Dockerfile + K8s manifests
-kubectl apply -f .hexr/manifests →    Pod scheduled with 3 sidecars + init
-                                      ├── spire-agent (DS) attests pod
-                                      ├── auto-registrar issues per-process SVIDs
-                                      └── envoy-sidecar terminates mTLS
+cd hybrid/cost-anomaly-investigator
+rm -rf .hexr
+hexr build cost_investigator.py --tenant acme-aws --no-mock-mode \
+  --trust-domain agents.hexr.cloud \
+  --pypi-url https://pypi.hexr.cloud/simple/ \
+  --registry "$REGISTRY"
+hexr push --tenant acme-aws --registry "$REGISTRY" --platform linux/amd64
+kubectl config use-context hexr-eks-1
+hexr deploy .hexr --namespace tenant-acme-aws
 ```
 
-## Planned demos (not yet built)
+### Azure / AKS — `globex-azure` tenant
 
-> Honest status: the entries below are roadmap, not shipped. The three working demos above are the canonical proof of the SDK contract for the current hybrid pivot.
+```bash
+export REGISTRY=hexrglobex.azurecr.io/hexr
+az acr login --name hexrglobex
 
-<details>
-<summary>Click to expand the full demo plan</summary>
+# Get the cost-investigator's LB hostname so the AKS crew can call it
+COST_URL=$(kubectl --context hexr-eks-1 -n tenant-acme-aws get svc cost-investigator \
+  -o jsonpath='https://{.status.loadBalancer.ingress[0].hostname}:8443')
 
-### Flagship demos (Tier 3) — cover entire platform
-
-| Demo | Frameworks | Capabilities | Status |
-|---|---|---|---|
-| `flagship/governed-agent/` | LangChain + CrewAI | 17/17 — GRC compliance evidence, 18 agentic controls, 5 frameworks, identity, OPA, progressive enforcement, audit export | 🔲 Planned |
-| `flagship/rogue-agent/` | Raw Python + LangChain + CrewAI | 17/17 — progressive enforcement, threat chains, Impact Reach, all security layers | 🔲 Planned |
-
-### Capability deep-dives (Tier 2)
-
-| Example | Capability | Framework | Status |
-|---|---|---|---|
-| `capabilities/identity-spiffe/` | SPIFFE per-process identity | Raw Python | 🔲 |
-| `capabilities/vault-secrets/` | SPIFFE-native secret management | Raw Python | 🔲 |
-| `capabilities/gateway-mcp/` | REST → MCP tool translation | LangChain | 🔲 |
-| `capabilities/sandbox-exec/` | Firecracker microVM code exec | Claude SDK | 🔲 |
-| `capabilities/browse/` | Sandboxed browser (Stagehand) | Raw Python | 🔲 |
-| `capabilities/llm-guard/` | Prompt injection / PII scanning | OpenAI | 🔲 |
-| `capabilities/a2a-protocol/` | Agent-to-agent communication | Multi | 🔲 |
-| `capabilities/multi-cloud-creds/` | SPIFFE → AWS STS + GCP WIF + Azure | Raw Python | 🔲 |
-| `capabilities/opa-governance/` | Policy authoring + enforcement | Raw Python | 🔲 |
-| `capabilities/progressive-enforcement/` | Simulate → Audit → Enforce | Raw Python | 🔲 |
-| `capabilities/threat-chains/` | 6 threat-chain detectors | Multi | 🔲 |
-| `capabilities/compliance-packs/` | SOC 2, NIST, ISO, PCI, EU AI Act | Raw Python | 🔲 |
-| `capabilities/metering-hcu/` | HCU cost attribution | Raw Python | 🔲 |
-| `capabilities/stripe-acp/` | Stripe SharedPaymentTokens | Claude SDK | 🔲 |
-| `capabilities/google-a2a/` | Google A2A protocol interop | Google ADK | 🔲 |
-
-### Framework examples (Tier 1) — one per framework
-
-| Example | Framework | Agent | Status |
-|---|---|---|---|
-| `frameworks/raw-python/` | Raw Python | Data Summarizer | 🔲 |
-| `frameworks/langchain/` | LangChain | Research Assistant | 🔲 |
-| `frameworks/crewai/` | CrewAI | Content Creation Crew | 🔲 |
-| `frameworks/strands-aws/` | Strands (AWS) | Financial Analyst | 🔲 |
-| `frameworks/claude-sdk/` | Claude SDK (Anthropic) | Code Reviewer | 🔲 |
-| `frameworks/google-adk/` | Google ADK | Task Planner | 🔲 |
-| `frameworks/openai-agents/` | OpenAI Agents SDK | Customer Support | 🔲 |
-
-</details>
-
-hexr deploy --cloud  →   Cloud API → K8s Pod + sidecars
-
-Runtime security (automatic):
-  SPIRE  → Cryptographic identity per process
-  Envoy  → mTLS between all agents
-  OPA    → Policy enforcement (deterministic, zero LLM cost)
-  Vault  → SPIFFE-native secrets (no env vars)
-  OTel   → Distributed traces + LLM attribution
-  Guard  → Prompt injection / PII scanning
+cd hybrid/investment-memo-crew
+rm -rf .hexr
+hexr build investment_memo_crew.py --tenant globex-azure --no-mock-mode \
+  --trust-domain agents.hexr.cloud \
+  --pypi-url https://pypi.hexr.cloud/simple/ \
+  --registry "$REGISTRY"
+hexr push --tenant globex-azure --registry "$REGISTRY" --platform linux/amd64
+kubectl config use-context hexr-runtime-aks-1
+hexr deploy .hexr --namespace tenant-globex-azure \
+  --set env.COST_INVESTIGATOR_URL="$COST_URL"
 ```
 
-## Cloud Agnostic
+## The hero step — `hexr audit`
 
-Hexr works on any Kubernetes cluster — GKE, EKS, AKS, bare metal. Cloud credential exchange supports AWS, GCP, and Azure (via SPIFFE → STS/WIF federation). Examples demonstrate multi-cloud access patterns.
+After the agents have run a few times and emitted evidence rows, generate
+the audit PDF. This is the thing auditors actually look at.
 
-## Guides
+```bash
+# Per-tenant audit pack
+hexr audit --tenant acme-aws --framework soc2  --output acme-aws-soc2.pdf
+hexr audit --tenant globex-azure --framework hipaa --output globex-hipaa.pdf
 
-- [Volunteer Weekend Guide](VOLUNTEER_WEEKEND_GUIDE.md) — Hands-on walkthrough for A2A team examples
+# The PDF contains, per control:
+#   - control_id, control_text, mapped_evidence_count
+#   - sample evidence rows with SPIFFE ID, timestamp, decision, span_id
+#   - cryptographic signature (audit-pack signing key in CP KMS)
+```
+
+## Pod shape
+
+Every agent pod runs four containers (three if `a2a=False`), all wired by
+`hexr build`:
+
+| Container | Role |
+|---|---|
+| `agent` | Your Python code |
+| `pid-mapper` (init) | Per-process SPIFFE attestation marker |
+| `envoy-sidecar` | mTLS termination using X.509 SVIDs from local SPIRE agent |
+| `a2a-sidecar` | A2A JSON-RPC + task lifecycle on `:8090` |
+
+## Pre-pivot demos kept for reference only
+
+`content_creation/`, `financial_analysis/`, `orchestrator/` predate the
+hybrid pivot. Source still parses against the current SDK but the
+deploy instructions in their docstrings refer to a SaaS CP that no longer
+exists. **Use the `hybrid/` demos for any new work.**
+
+## Reference
+
+- Hybrid pivot spec: [`hexr/docs/HEXR_HYBRID_PIVOT_TECH_SPEC.md`](../hexr/docs/HEXR_HYBRID_PIVOT_TECH_SPEC.md)
+- SDK overhaul spec: [`hexr/docs/HEXR_SDK_OVERHAUL_TECH_SPEC.md`](../hexr/docs/HEXR_SDK_OVERHAUL_TECH_SPEC.md)
