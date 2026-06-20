@@ -239,6 +239,56 @@ plumbing.
 
 ---
 
+## 5a. Calling agents from your laptop
+
+The `kubectl exec` calls in §2.6 and §3.6 are the trigger pattern you'd put in a script that runs *inside* the same Kubernetes cluster (an operator job, a CronJob, another agent calling back). When you're sitting at your own machine, use `kubectl port-forward` instead — no public LoadBalancer needed, no IAM/ingress paperwork to wire up before a demo, traffic stays on your kube-config's authenticated tunnel.
+
+### 5a.1 Cost-investigator from your laptop (EKS)
+
+```bash
+# Forward the agent's HTTP port. Backgrounded so you keep your prompt.
+kubectl --context hexr-eks-1 -n tenant-acme-aws \
+  port-forward svc/cost-investigator 9101:8080 &
+
+# Trigger from localhost. SPIRE identity is still verified inside the cluster —
+# port-forward is just kubectl's authenticated tunnel; the request still
+# transits the agent's Envoy sidecar exactly the same way.
+curl -sS -X POST http://localhost:9101/execute \
+     -H 'Content-Type: application/json' \
+     -d '{"message":{"role":"user","parts":[{"text":"scan last 7 days across all three clouds"}]}}' | jq .
+
+# When done:
+kill %1
+```
+
+### 5a.2 Investment-memo-crew from your laptop (AKS)
+
+```bash
+kubectl --context hexr-runtime-aks-1 -n tenant-globex-azure \
+  port-forward svc/investment-memo-crew 9102:8080 &
+
+curl -sS -X POST http://localhost:9102/execute \
+     -H 'Content-Type: application/json' \
+     -d '{"message":{"role":"user","parts":[{"text":"draft memo for ACME"}]}}' | jq .
+
+kill %1
+```
+
+### 5a.3 When NOT to use port-forward
+
+| Caller | Use |
+|---|---|
+| Your laptop, ad-hoc trigger or demo | `kubectl port-forward` (this section) |
+| Another agent in the SAME cluster | In-cluster Service DNS (`http://cost-investigator.tenant-acme-aws.svc.cluster.local:8080`) |
+| Another agent in a DIFFERENT cluster (cross-cloud A2A) | Public LoadBalancer + SPIFFE mTLS (`COST_URL` pattern in §2.5/§3.4) — port-forward does not work because the remote pod cannot dial back into your laptop |
+| Production user/web traffic | Ingress (typically restricted to internal LoadBalancer + corporate IdP; we deliberately do NOT expose agents on the public internet by default — they are tools called by other agents, not human-facing endpoints) |
+
+### 5a.4 Why this is fine for an enterprise demo
+
+The agent's Envoy sidecar still verifies the caller's SPIFFE identity on every request. Port-forward changes the *transport* (a kubectl tunnel instead of an LB) but not the *trust model* — the request still has to pass the credential-injector's OPA decision and produce an evidence row. The customer sees the same audit trail whether the trigger came from their laptop, an in-cluster job, or another DP cluster's agent.
+
+---
+
 ## 6. Troubleshooting
 
 | Symptom | Likely cause | Fix |
