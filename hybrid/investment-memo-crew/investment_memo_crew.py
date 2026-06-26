@@ -66,9 +66,8 @@ from hexr.a2a.bridge import A2ABridge
 from hexr.a2a.client import A2AClient
 from hexr.a2a.models import Artifact, Message, TextPart
 
-from crewai import Agent, Crew, Process, Task
+from crewai import LLM, Agent, Crew, Process, Task
 from crewai.tools import BaseTool
-from langchain_openai import AzureChatOpenAI
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 logger = logging.getLogger("investment-memo-crew")
@@ -155,25 +154,30 @@ async def _a2a_call(url: str, socket: str, question: str) -> str:
 # CrewAI agents. Hierarchical = Investment Director delegates to workers.
 # ---------------------------------------------------------------------------
 
-def _llm():
-    # Provider selection: DeepSeek (OpenAI-compatible) if DEEPSEEK_API_KEY is
-    # mounted from `hexr-llm-credentials`, otherwise Azure OpenAI. Both env
-    # vars are auto-mounted by the Hexr SDK (build/k8s.py).
+def _llm() -> LLM:
+    """Build a CrewAI-native LLM.
+
+    CrewAI >= 0.80 rejects LangChain `ChatOpenAI` / `AzureChatOpenAI` instances
+    (pydantic v2 validator wants a str or `crewai.LLM`/BaseLLM). Model strings
+    use CrewAI's native provider prefixes (no LiteLLM dep):
+      - DeepSeek  → `deepseek/deepseek-chat`
+      - Azure     → `azure/<deployment>` + api_version
+    Env vars are auto-mounted by the Hexr SDK (build/k8s.py).
+    """
     deepseek_key = os.environ.get("DEEPSEEK_API_KEY", "").strip()
     if deepseek_key:
-        # CrewAI accepts a LangChain ChatOpenAI-compatible client.
-        from langchain_openai import ChatOpenAI
-        return ChatOpenAI(
-            model=os.getenv("LLM_MODEL", "deepseek-chat"),
+        return LLM(
+            model=os.getenv("LLM_MODEL", "deepseek/deepseek-chat"),
             api_key=deepseek_key,
             base_url=os.getenv("LLM_BASE_URL", "https://api.deepseek.com/v1"),
             temperature=0.2,
         )
-    return AzureChatOpenAI(
-        azure_deployment=os.environ.get("AZURE_OPENAI_DEPLOYMENT", "gpt-4o"),
-        api_version=os.environ.get("AZURE_OPENAI_API_VERSION", "2024-08-01-preview"),
-        azure_endpoint=os.environ["AZURE_OPENAI_ENDPOINT"],
+    deployment = os.environ.get("AZURE_OPENAI_DEPLOYMENT", "gpt-4o")
+    return LLM(
+        model=f"azure/{deployment}",
         api_key=os.environ["AZURE_OPENAI_API_KEY"],
+        base_url=os.environ["AZURE_OPENAI_ENDPOINT"],
+        api_version=os.environ.get("AZURE_OPENAI_API_VERSION", "2024-08-01-preview"),
         temperature=0.2,
     )
 
@@ -264,7 +268,7 @@ def _get_crew() -> Crew:
 async def handle(message: Message) -> list[Artifact]:
     ticker = (message.text_content() or "NVDA").strip().upper()
     logger.info("investment-memo-crew received ticker: %s", ticker)
-    result = _get_crew().kickoff(inputs={"ticker": ticker})
+    result = await _get_crew().kickoff_async(inputs={"ticker": ticker})
     final = str(result)
     return [
         Artifact(
