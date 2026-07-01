@@ -35,6 +35,24 @@ from hexr.vault import VaultClient
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Tenant-scoped S3 bucket. Terraform (deployment/terraform/aws/tenants/) provisions
+# hexr-<tenant>-artifacts-<account>; tenant-bootstrap can inject as HEXR_TENANT_S3_BUCKET.
+# Falls back to the pivot-demo bucket for local runs.
+_TENANT_S3_BUCKET = os.environ.get(
+    "HEXR_TENANT_S3_BUCKET", "hexr-pivot-demo-artifacts-697675504955"
+)
+
+
+def _verify_s3(s3, label: str) -> None:
+    """Tenant-scoped S3 auth probe. Uses head_bucket (allowed by the tenant IAM policy)
+    instead of list_buckets (a wildcard-resource op that AWS correctly rejects under
+    least-privilege tenant scoping)."""
+    try:
+        s3.head_bucket(Bucket=_TENANT_S3_BUCKET)
+        logger.info(f"✅ {label} S3 access verified on bucket={_TENANT_S3_BUCKET}")
+    except Exception as e:
+        logger.error(f"❌ {label} S3 access failed: {e}")
+
 
 def _get_openai_key() -> str | None:
     """Fetch OpenAI API key from Hexr Vault, fallback to env var for local dev."""
@@ -73,11 +91,7 @@ class ResearchAgent:
         """Research a topic using S3 for data storage + hexr_llm for LLM calls."""
         logger.info(f"📚 Researching topic: {topic}")
 
-        try:
-            buckets = self.s3.list_buckets()
-            logger.info(f"✅ S3 access verified: {len(buckets)} buckets found")
-        except Exception as e:
-            logger.error(f"❌ S3 access failed: {e}")
+        _verify_s3(self.s3, "research_agent")
 
         if _llm_client is not None:
             try:
@@ -117,11 +131,7 @@ class WriterAgent:
         """Write content based on research."""
         logger.info("📝 Writing content")
 
-        try:
-            buckets = self.s3.list_buckets()
-            logger.info(f"✅ S3 access verified: {len(buckets)} buckets found")
-        except Exception as e:
-            logger.error(f"❌ S3 access failed: {e}")
+        _verify_s3(self.s3, "writer_agent")
 
         if _llm_client is not None:
             try:
@@ -161,11 +171,7 @@ class EditorAgent:
         """Edit and refine content."""
         logger.info("✏️ Editing content")
 
-        try:
-            buckets = self.s3.list_buckets()
-            logger.info(f"✅ S3 access verified: {len(buckets)} buckets found")
-        except Exception as e:
-            logger.error(f"❌ S3 access failed: {e}")
+        _verify_s3(self.s3, "editor_agent")
 
         if _llm_client is not None:
             try:
@@ -214,11 +220,7 @@ class ContentCreationPipeline:
         """Execute the full content creation pipeline."""
         logger.info(f"🚀 Starting content creation for: {topic}")
 
-        try:
-            buckets = self.s3.list_buckets()
-            logger.info(f"✅ Pipeline S3 access verified: {len(buckets)} buckets found")
-        except Exception as e:
-            logger.error(f"❌ Pipeline S3 access failed: {e}")
+        _verify_s3(self.s3, "pipeline")
 
         research_agent = ResearchAgent()
         writer_agent = WriterAgent()
@@ -228,14 +230,33 @@ class ContentCreationPipeline:
         write_result = writer_agent.write(research_result)
         final_result = editor_agent.edit(write_result)
 
-        logger.info(f"✅ Content creation complete for: {topic}")
-        return (
+        report = (
             f"=== Content Creation Report ===\n"
             f"Topic: {topic}\n\n"
             f"Research:\n{research_result}\n\n"
             f"Draft:\n{write_result}\n\n"
             f"Final:\n{final_result}"
         )
+
+        # End-to-end enterprise proof: upload the final artifact to the tenant S3 bucket.
+        import hashlib
+        import time
+        key = f"content-reports/{int(time.time())}-{hashlib.sha1(topic.encode()).hexdigest()[:12]}.txt"
+        try:
+            self.s3.put_object(
+                Bucket=_TENANT_S3_BUCKET,
+                Key=key,
+                Body=report.encode("utf-8"),
+                ContentType="text/plain; charset=utf-8",
+            )
+            logger.info(f"✅ Uploaded report to s3://{_TENANT_S3_BUCKET}/{key}")
+            report += f"\n\nUploaded: s3://{_TENANT_S3_BUCKET}/{key}"
+        except Exception as e:
+            logger.error(f"❌ S3 put_object failed: {e}")
+            report += f"\n\nS3 upload FAILED: {e}"
+
+        logger.info(f"✅ Content creation complete for: {topic}")
+        return report
 
 
 # ---------------------------------------------------------------------------
