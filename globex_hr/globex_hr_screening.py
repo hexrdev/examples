@@ -58,6 +58,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import multiprocessing
 import os
 import random
 import sys
@@ -81,9 +82,17 @@ def touch_candidate_store(purpose: str) -> str:
     """Reach the candidate record store through Hexr.
 
     This is what makes the demo real rather than a print statement. hexr_tool()
-    exchanges THIS PROCESS's SVID for short-lived Azure credentials and emits a
+    exchanges THIS PROCESS's SVID for short-lived cloud credentials and emits a
     signed evidence row either way — `tool_call_allowed` if the exchange
     succeeds, `tool_call_denied` if policy refuses it.
+
+    The store is a GCS bucket, reached from an Azure-hosted process: the
+    credential-injector federates the process's identity into GCP through the
+    tenant's workload-identity provider (hexr-globex-azure), so the agent
+    holds no key for either cloud. It was `azure_storage` until 2026-09-19;
+    the injector federates to AWS and GCP only, so that call was refused by
+    policy on every run, and the demo's "allowed" path had never once
+    happened.
 
     A denial is not a failure of the demo. It is the demo: the row names the
     process that asked, what it asked for, and that it was refused. The
@@ -91,7 +100,7 @@ def touch_candidate_store(purpose: str) -> str:
     storage call is denied would teach the operator to turn the control off.
     """
     try:
-        client = hexr_tool("azure_storage")
+        client = hexr_tool("gcp_storage")
         log.info("  [%s] candidate store reached via %s", purpose, type(client).__name__)
         return "allowed"
     except Exception as exc:  # noqa: BLE001 — any failure is evidence, not a crash
@@ -225,6 +234,73 @@ def candidate_dedupe(candidates: list[Candidate]) -> list[Candidate]:
 
 # ── Pipeline ─────────────────────────────────────────────────────────────────
 
+# ── Each stage runs in its OWN process ───────────────────────────────────────
+#
+# This is not a stylistic choice, and getting it wrong invalidates the whole
+# demo.
+#
+# A Hexr identity is per-PROCESS. The SDK writes
+# /tmp/hexr-context/hexr-agent-<PID>-<role>.json and the attestor reads it,
+# keyed on the PID the kernel reports for the caller. Two decorated functions
+# running in ONE interpreter therefore share a PID — so they register two
+# roles, the later one wins, and every evidence row is attributed to whichever
+# decorator ran last.
+#
+# We shipped exactly that mistake and it showed up as 234 evidence rows over
+# two hours, every one signed by `interview-scorer`, while `resume-ranker`
+# demonstrably made the same call and produced none. The claim "two processes,
+# two identities" was false while the page asserted it.
+#
+# So each stage is spawned as a real subprocess. Separate PIDs, separate
+# context files, separate SVIDs, and evidence that attributes to the stage that
+# actually made the call. It also happens to be how a real screening pipeline
+# would be built — stages that can fail and be retried independently.
+
+def _stage_worker(fn_name: str, payload, conn) -> None:
+    """Run one stage in this (fresh) process and send the result back.
+
+    The decorator runs on import in the child, so registration happens against
+    the CHILD's PID. That is the entire point of spawning rather than calling.
+    """
+    fn = {"resume_ranker": resume_ranker, "interview_scorer": interview_scorer}[fn_name]
+    try:
+        conn.send(("ok", fn(*payload)))
+    except Exception as exc:  # noqa: BLE001 — surfaced to the parent, not swallowed
+        conn.send(("err", f"{type(exc).__name__}: {exc}"))
+    finally:
+        conn.close()
+
+
+# SPAWN, not fork.
+#
+# The default start method on Linux is fork(), and a forked child inherits the
+# parent's memory — including the SDK's already-resolved identity. The child
+# therefore never re-registers, and its evidence is signed with the PARENT's
+# SVID. We measured exactly that: distinct OS PIDs, one shared proc-<pid> in
+# every SPIFFE ID.
+#
+# spawn starts a fresh interpreter that re-imports this module, so the
+# @hexr_agent decorators run again and register against the CHILD's pid. It is
+# slower per stage, and the slowness is the correct trade for an identity that
+# actually names the process that did the work.
+_MP = multiprocessing.get_context("spawn")
+
+
+def run_stage(fn_name: str, *payload):
+    """Spawn a stage in a fresh interpreter, wait for it, return its result."""
+    parent, child = _MP.Pipe()
+    proc = _MP.Process(
+        target=_stage_worker, args=(fn_name, payload, child), name=fn_name
+    )
+    proc.start()
+    status, value = parent.recv()
+    proc.join(timeout=60)
+    log.info("  %s ran as pid %s", fn_name, proc.pid)
+    if status == "err":
+        raise RuntimeError(f"{fn_name} failed: {value}")
+    return value
+
+
 def run_once(include_dark: bool) -> dict:
     applications = load_applications()
     required = ["python", "kubernetes", "postgres"]
@@ -237,8 +313,8 @@ def run_once(include_dark: bool) -> dict:
     else:
         log.info("candidate-dedupe: skipped (--no-dark)")
 
-    ranked = resume_ranker(applications, required)
-    decisions = interview_scorer(ranked)
+    ranked = run_stage("resume_ranker", applications, required)
+    decisions = run_stage("interview_scorer", ranked)
 
     advanced = sum(1 for d in decisions if d["outcome"] == "advance")
     log.info("pipeline complete: %d reviewed, %d advanced", len(decisions), advanced)
