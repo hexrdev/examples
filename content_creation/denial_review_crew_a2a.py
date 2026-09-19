@@ -32,6 +32,7 @@ A2A Flow:
 
 import asyncio
 import hashlib
+import multiprocessing
 import json
 import logging
 import os
@@ -286,6 +287,46 @@ class DenialWriter:
     ],
     description="Denial-review pipeline. Send a (synthetic) claim JSON and receive an appeal draft written to the tenant S3 bucket.",
 )
+def _stage_worker(stage: str, payload, conn) -> None:
+    """Run one stage in this (fresh) process and send the result back.
+
+    Class decorators register at instantiation, so instantiating exactly one
+    agent class here gives THIS process that agent's identity.
+    """
+    try:
+        if stage == "analyze":
+            result = ClaimsAnalyst().analyze(*payload)
+        elif stage == "review":
+            result = PolicyReviewer().review(*payload)
+        elif stage == "draft":
+            result = DenialWriter().draft(*payload)
+        else:
+            raise ValueError(stage)
+        conn.send(("ok", result))
+    except Exception as exc:  # noqa: BLE001 — surfaced to the parent, not swallowed
+        conn.send(("err", f"{type(exc).__name__}: {exc}"))
+    finally:
+        conn.close()
+
+
+# SPAWN, not fork: a forked child inherits the parent's resolved identity and
+# never re-registers. spawn re-imports this module in a fresh interpreter.
+_MP = multiprocessing.get_context("spawn")
+
+
+def run_stage(stage: str, *payload):
+    """Spawn a stage in a fresh interpreter, wait for it, return its result."""
+    parent, child = _MP.Pipe()
+    proc = _MP.Process(target=_stage_worker, args=(stage, payload, child), name=stage)
+    proc.start()
+    status, value = parent.recv()
+    proc.join(timeout=120)
+    logger.info(f"  {stage} ran as pid {proc.pid}")
+    if status == "err":
+        raise RuntimeError(f"{stage} failed: {value}")
+    return value
+
+
 class DenialReviewPipeline:
     """Orchestrator for the denial-review crew."""
 
@@ -299,13 +340,14 @@ class DenialReviewPipeline:
 
         _verify_s3(self.s3, "pipeline")
 
-        analyst = ClaimsAnalyst()
-        reviewer = PolicyReviewer()
-        writer = DenialWriter()
-
-        analysis = analyst.analyze(claim)
-        policy = reviewer.review(claim, analysis)
-        appeal = writer.draft(claim, analysis, policy)
+        # Each stage in its own process. The three classes used to run in the
+        # orchestrator's process, so every row they wrote carried whichever
+        # identity registered last (denial_writer) — three agents, one name.
+        # A stage now gets the identity of the class it instantiates, in a
+        # spawned interpreter, so an evidence row names the process that acted.
+        analysis = run_stage("analyze", claim)
+        policy = run_stage("review", claim, analysis)
+        appeal = run_stage("draft", claim, analysis, policy)
 
         report = (
             "=== Denial-Review Appeal Draft ===\n"
