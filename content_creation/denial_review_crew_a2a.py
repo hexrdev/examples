@@ -80,21 +80,47 @@ def _verify_s3(s3, label: str) -> None:
         logger.error(f"❌ {label} S3 access failed: {e}")
 
 
-def _get_openai_key() -> str | None:
-    """Fetch OpenAI API key from Hexr Vault, fallback to env var for local dev."""
+def _get_llm_key() -> tuple[str | None, str, str]:
+    """Return (api_key, base_url, model). Prefer DeepSeek (OpenAI-compatible),
+    fall back to OpenAI. Both keys sourced from Hexr Vault first, env var second."""
     try:
         vault = VaultClient()
-        key = vault.get("api-keys/openai")
-        logger.info("✅ OpenAI API key fetched from Hexr Vault")
-        return key
+        ds = vault.get("api-keys/deepseek")
+        if ds:
+            logger.info("✅ DeepSeek API key fetched from Hexr Vault")
+            return ds, "https://api.deepseek.com", "deepseek-chat"
     except Exception as e:
-        logger.debug(f"Vault unavailable ({e}), trying env var fallback")
-    return os.environ.get("OPENAI_API_KEY")
+        logger.debug(f"Vault deepseek lookup failed ({e})")
+
+    ds_env = os.environ.get("DEEPSEEK_API_KEY")
+    if ds_env:
+        logger.info("✅ DeepSeek API key from env")
+        return ds_env, "https://api.deepseek.com", "deepseek-chat"
+
+    try:
+        vault = VaultClient()
+        oa = vault.get("api-keys/openai")
+        if oa:
+            logger.info("✅ OpenAI API key fetched from Hexr Vault")
+            return oa, "https://api.openai.com/v1", "gpt-4o-mini"
+    except Exception as e:
+        logger.debug(f"Vault openai lookup failed ({e})")
+
+    oa_env = os.environ.get("OPENAI_API_KEY")
+    if oa_env:
+        logger.info("✅ OpenAI API key from env")
+        return oa_env, "https://api.openai.com/v1", "gpt-4o-mini"
+
+    return None, "", ""
 
 
-# ── hexr_llm: wrap the OpenAI client for automatic OTel tracing + LLM Guard ──
-_api_key = _get_openai_key()
-_llm_client = hexr_llm(openai.OpenAI(api_key=_api_key)) if _api_key else None
+# ── hexr_llm: wrap the OpenAI-compat client for automatic OTel tracing + LLM Guard ──
+_api_key, _base_url, _model = _get_llm_key()
+_llm_client = (
+    hexr_llm(openai.OpenAI(api_key=_api_key, base_url=_base_url))
+    if _api_key
+    else None
+)
 
 
 # NOTE: tenant= is a source-code default. It's overridden at build time by:
@@ -130,7 +156,7 @@ class ClaimsAnalyst:
         if _llm_client is not None:
             try:
                 resp = _llm_client.chat.completions.create(
-                    model="gpt-4o-mini",
+                    model=_model,
                     messages=[{"role": "user", "content": summary_prompt}],
                     max_tokens=220,
                     temperature=0.2,
@@ -176,7 +202,7 @@ class PolicyReviewer:
         if _llm_client is not None:
             try:
                 resp = _llm_client.chat.completions.create(
-                    model="gpt-4o-mini",
+                    model=_model,
                     messages=[{"role": "user", "content": prompt}],
                     max_tokens=280,
                     temperature=0.3,
@@ -225,7 +251,7 @@ class DenialWriter:
         if _llm_client is not None:
             try:
                 resp = _llm_client.chat.completions.create(
-                    model="gpt-4o-mini",
+                    model=_model,
                     messages=[{"role": "user", "content": prompt}],
                     max_tokens=380,
                     temperature=0.4,
