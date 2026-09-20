@@ -245,7 +245,9 @@ def interview_scorer(ranked: list[tuple[Candidate, float]], threshold: float = 0
 # Because it never called @hexr_agent, it writes no context file. The enhanced
 # attestor therefore emits no hexr: selectors for its PID, no registration
 # entry matches, and SPIRE issues it nothing. It runs perfectly well. It is
-# simply nobody.
+# simply nobody. When it reaches the store through hexr_tool() the SDK refuses
+# it credentials and records a `tool_call_denied` row under `local-dev` — the
+# one trace it leaves, and it is a refusal, not an action.
 #
 # Do NOT "fix" this by decorating it. The dark row is the demo.
 
