@@ -1,0 +1,4 @@
+# `hexr build` output — regenerated from the source file on every build, and
+# it embeds a registry path plus a downloaded SDK wheel. Nothing here is worth
+# reviewing in a diff.
+.hexr/
