@@ -81,12 +81,17 @@ def _verify_s3(s3, label: str) -> None:
         logger.error(f"❌ {label} S3 access failed: {e}")
 
 
+TENANT = os.getenv("HEXR_TENANT", "pivot-demo")
+
+
 def _get_llm_key() -> tuple[str | None, str, str]:
     """Return (api_key, base_url, model). Prefer DeepSeek (OpenAI-compatible),
     fall back to OpenAI. Both keys sourced from Hexr Vault first, env var second."""
     try:
         vault = VaultClient()
-        ds = vault.get("api-keys/deepseek")
+        # Secrets are tenant-scoped paths. The Vault releases them only to a
+        # process that proves its identity (JWT-SVID); nothing here holds a key.
+        ds = vault.get(f"{TENANT}/api-keys/deepseek")
         if ds:
             logger.info("✅ DeepSeek API key fetched from Hexr Vault")
             return ds, "https://api.deepseek.com", "deepseek-chat"
@@ -100,7 +105,7 @@ def _get_llm_key() -> tuple[str | None, str, str]:
 
     try:
         vault = VaultClient()
-        oa = vault.get("api-keys/openai")
+        oa = vault.get(f"{TENANT}/api-keys/openai")
         if oa:
             logger.info("✅ OpenAI API key fetched from Hexr Vault")
             return oa, "https://api.openai.com/v1", "gpt-4o-mini"
