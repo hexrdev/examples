@@ -66,7 +66,7 @@ import time
 from dataclasses import dataclass, field
 
 import hexr
-from hexr import hexr_agent, hexr_tool
+from hexr import hexr_agent, hexr_llm, hexr_tool
 
 logging.basicConfig(
     level=logging.INFO,
@@ -166,6 +166,31 @@ def resume_ranker(candidates: list[Candidate], required: list[str]) -> list[tupl
 
 # ── 2. interview-scorer — instrumented ───────────────────────────────────────
 
+_llm_state: dict = {}
+
+
+def _llm():
+    """The model client for THIS process, built on first use.
+
+    The key comes from Hexr Vault, released only to a process that proves its
+    identity — so this cannot run at import, when the process has none. If
+    the Vault has no key for this tenant the scorer works without a model
+    and says so in its reason; nothing is faked.
+    """
+    if "client" not in _llm_state:
+        _llm_state["client"] = None
+        try:
+            import openai
+            from hexr.vault.client import VaultClient
+            key = VaultClient().get(f"{TENANT}/api-keys/deepseek")
+            if key:
+                _llm_state["client"] = hexr_llm(openai.OpenAI(api_key=key, base_url="https://api.deepseek.com"))
+                log.info("  model key released by the Vault to this process")
+        except Exception as exc:  # noqa: BLE001 — evidence, not a crash
+            log.info("  no model key for this process: %s", type(exc).__name__)
+    return _llm_state["client"]
+
+
 @hexr_agent(
     name="interview-scorer",
     tenant=TENANT,
@@ -182,12 +207,24 @@ def interview_scorer(ranked: list[tuple[Candidate, float]], threshold: float = 0
     """
     log.info("interview-scorer: reviewing candidates above %.2f", threshold)
     touch_candidate_store("write decisions")
+    client = _llm()
     decisions = []
     for c, score in ranked:
         if score < threshold:
             outcome, reason = "hold", f"ranking {score:.3f} below threshold {threshold:.2f}"
         else:
             outcome, reason = "advance", f"ranking {score:.3f} meets threshold"
+        # One model call per candidate above threshold: a one-line interview
+        # focus. Every call is a signed evidence row from this process.
+        if client is not None and outcome == "advance":
+            try:
+                r = client.chat.completions.create(
+                    model="deepseek-chat", max_tokens=40, temperature=0.2,
+                    messages=[{"role": "user", "content": f"In one sentence, what should an interviewer probe for a {c.role} candidate with {c.years_experience} years and skills {', '.join(c.skills)}? No names."}],
+                )
+                reason += " · focus: " + (r.choices[0].message.content or "").strip()
+            except Exception as exc:  # noqa: BLE001
+                reason += f" · model unavailable ({type(exc).__name__})"
         decisions.append({"ref": c.ref, "role": c.role, "outcome": outcome, "reason": reason})
         log.info("  %s  %-8s  %s", c.ref, outcome, reason)
     return decisions
