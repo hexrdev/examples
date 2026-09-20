@@ -76,6 +76,7 @@ logging.basicConfig(
 log = logging.getLogger("globex.hr")
 
 TENANT = os.getenv("HEXR_TENANT_ID", "globex-azure")
+VAULT_TENANT = os.getenv("HEXR_TENANT", "globex-azure")  # the identity's tenant, as the Vault scopes it
 
 
 def touch_candidate_store(purpose: str) -> str:
@@ -182,7 +183,9 @@ def _llm():
         try:
             import openai
             from hexr.vault.client import VaultClient
-            key = VaultClient().get(f"{TENANT}/api-keys/deepseek")
+            # Secret paths are scoped by the tenant in the process's identity
+            # (globex-azure), not by the namespace (tenant-globex-azure).
+            key = VaultClient().get(f"{VAULT_TENANT}/api-keys/deepseek")
             if key:
                 _llm_state["client"] = hexr_llm(openai.OpenAI(api_key=key, base_url="https://api.deepseek.com"))
                 log.info("  model key released by the Vault to this process")
