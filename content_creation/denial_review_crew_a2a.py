@@ -121,12 +121,22 @@ def _get_llm_key() -> tuple[str | None, str, str]:
 
 
 # ── hexr_llm: wrap the OpenAI-compat client for automatic OTel tracing + LLM Guard ──
-_api_key, _base_url, _model = _get_llm_key()
-_llm_client = (
-    hexr_llm(openai.OpenAI(api_key=_api_key, base_url=_base_url))
-    if _api_key
-    else None
-)
+# The model client is built LAZILY, on first use inside an agent method.
+# At import time this process has no identity yet, so the Vault would refuse
+# it (correctly) and the crew would silently fall back to static text — which
+# it did, for months: llm_call_count stayed at 0. Inside a decorated instance
+# the process is registered, the JWT-SVID is issued, and the Vault releases
+# the key to this process only.
+_llm_state: dict = {}
+
+
+def _llm():
+    """(client, model) for this process, or (None, None) if no key is available."""
+    if "client" not in _llm_state:
+        api_key, base_url, model = _get_llm_key()
+        _llm_state["client"] = hexr_llm(openai.OpenAI(api_key=api_key, base_url=base_url)) if api_key else None
+        _llm_state["model"] = model
+    return _llm_state["client"], _llm_state["model"]
 
 
 # NOTE: tenant= is a source-code default. It's overridden at build time by:
@@ -159,9 +169,10 @@ class ClaimsAnalyst:
             f"{json.dumps(claim, indent=2)}"
         )
 
-        if _llm_client is not None:
+        _client, _model = _llm()
+        if _client is not None:
             try:
-                resp = _llm_client.chat.completions.create(
+                resp = _client.chat.completions.create(
                     model=_model,
                     messages=[{"role": "user", "content": summary_prompt}],
                     max_tokens=220,
@@ -205,9 +216,10 @@ class PolicyReviewer:
             f"Analysis:\n{analysis}"
         )
 
-        if _llm_client is not None:
+        _client, _model = _llm()
+        if _client is not None:
             try:
-                resp = _llm_client.chat.completions.create(
+                resp = _client.chat.completions.create(
                     model=_model,
                     messages=[{"role": "user", "content": prompt}],
                     max_tokens=280,
@@ -254,9 +266,10 @@ class DenialWriter:
             f"Policy:\n{policy}"
         )
 
-        if _llm_client is not None:
+        _client, _model = _llm()
+        if _client is not None:
             try:
-                resp = _llm_client.chat.completions.create(
+                resp = _client.chat.completions.create(
                     model=_model,
                     messages=[{"role": "user", "content": prompt}],
                     max_tokens=380,
