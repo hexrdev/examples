@@ -1,0 +1,23 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: tenant-pivot-demo
+  labels:
+    hexr.io/tenant: "pivot-demo"
+    hexr.io/tenant-type: "customer"
+    hexr.io/managed-by: "hexr-sdk"
+    hexr.io/framework: "bespoke"
+    hexr.io/target: "development"
+  annotations:
+    # Multi-tenancy configuration
+    hexr.io/spire-identity-prefix: "tenant/pivot-demo"
+    hexr.io/credential-scope: "pivot-demo-resources"
+    hexr.io/network-isolation-level: "strict"
+    # Agent metadata
+    hexr.io/agent-name: "denial-review-crew-a2a"
+    hexr.io/build-version: "0.1.0"
+    # Cloud provider permissions
+    hexr.io/cloud-providers: "aws"
+spec:
+  finalizers:
+  - kubernetes

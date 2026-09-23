@@ -32,7 +32,6 @@ A2A Flow:
 
 import asyncio
 import hashlib
-import multiprocessing
 import json
 import logging
 import os
@@ -81,17 +80,12 @@ def _verify_s3(s3, label: str) -> None:
         logger.error(f"❌ {label} S3 access failed: {e}")
 
 
-TENANT = os.getenv("HEXR_TENANT", "pivot-demo")
-
-
 def _get_llm_key() -> tuple[str | None, str, str]:
     """Return (api_key, base_url, model). Prefer DeepSeek (OpenAI-compatible),
     fall back to OpenAI. Both keys sourced from Hexr Vault first, env var second."""
     try:
         vault = VaultClient()
-        # Secrets are tenant-scoped paths. The Vault releases them only to a
-        # process that proves its identity (JWT-SVID); nothing here holds a key.
-        ds = vault.get(f"{TENANT}/api-keys/deepseek")
+        ds = vault.get("api-keys/deepseek")
         if ds:
             logger.info("✅ DeepSeek API key fetched from Hexr Vault")
             return ds, "https://api.deepseek.com", "deepseek-chat"
@@ -105,7 +99,7 @@ def _get_llm_key() -> tuple[str | None, str, str]:
 
     try:
         vault = VaultClient()
-        oa = vault.get(f"{TENANT}/api-keys/openai")
+        oa = vault.get("api-keys/openai")
         if oa:
             logger.info("✅ OpenAI API key fetched from Hexr Vault")
             return oa, "https://api.openai.com/v1", "gpt-4o-mini"
@@ -121,22 +115,12 @@ def _get_llm_key() -> tuple[str | None, str, str]:
 
 
 # ── hexr_llm: wrap the OpenAI-compat client for automatic OTel tracing + LLM Guard ──
-# The model client is built LAZILY, on first use inside an agent method.
-# At import time this process has no identity yet, so the Vault would refuse
-# it (correctly) and the crew would silently fall back to static text — which
-# it did, for months: llm_call_count stayed at 0. Inside a decorated instance
-# the process is registered, the JWT-SVID is issued, and the Vault releases
-# the key to this process only.
-_llm_state: dict = {}
-
-
-def _llm():
-    """(client, model) for this process, or (None, None) if no key is available."""
-    if "client" not in _llm_state:
-        api_key, base_url, model = _get_llm_key()
-        _llm_state["client"] = hexr_llm(openai.OpenAI(api_key=api_key, base_url=base_url)) if api_key else None
-        _llm_state["model"] = model
-    return _llm_state["client"], _llm_state["model"]
+_api_key, _base_url, _model = _get_llm_key()
+_llm_client = (
+    hexr_llm(openai.OpenAI(api_key=_api_key, base_url=_base_url))
+    if _api_key
+    else None
+)
 
 
 # NOTE: tenant= is a source-code default. It's overridden at build time by:
@@ -169,10 +153,9 @@ class ClaimsAnalyst:
             f"{json.dumps(claim, indent=2)}"
         )
 
-        _client, _model = _llm()
-        if _client is not None:
+        if _llm_client is not None:
             try:
-                resp = _client.chat.completions.create(
+                resp = _llm_client.chat.completions.create(
                     model=_model,
                     messages=[{"role": "user", "content": summary_prompt}],
                     max_tokens=220,
@@ -216,10 +199,9 @@ class PolicyReviewer:
             f"Analysis:\n{analysis}"
         )
 
-        _client, _model = _llm()
-        if _client is not None:
+        if _llm_client is not None:
             try:
-                resp = _client.chat.completions.create(
+                resp = _llm_client.chat.completions.create(
                     model=_model,
                     messages=[{"role": "user", "content": prompt}],
                     max_tokens=280,
@@ -266,10 +248,9 @@ class DenialWriter:
             f"Policy:\n{policy}"
         )
 
-        _client, _model = _llm()
-        if _client is not None:
+        if _llm_client is not None:
             try:
-                resp = _client.chat.completions.create(
+                resp = _llm_client.chat.completions.create(
                     model=_model,
                     messages=[{"role": "user", "content": prompt}],
                     max_tokens=380,
@@ -287,48 +268,24 @@ class DenialWriter:
         )
 
 
-def _stage_worker(stage: str, payload, conn) -> None:
-    """Run one stage in this (fresh) process and send the result back.
-
-    Deliberately NOT decorated. Class decorators register at instantiation,
-    so instantiating exactly one agent class here gives this process exactly
-    one identity: that stage's. Decorating this function would give the
-    child a second one.
-    """
-    try:
-        if stage == "analyze":
-            result = ClaimsAnalyst().analyze(*payload)
-        elif stage == "review":
-            result = PolicyReviewer().review(*payload)
-        elif stage == "draft":
-            result = DenialWriter().draft(*payload)
-        else:
-            raise ValueError(stage)
-        conn.send(("ok", result))
-    except Exception as exc:  # noqa: BLE001 — surfaced to the parent, not swallowed
-        conn.send(("err", f"{type(exc).__name__}: {exc}"))
-    finally:
-        conn.close()
-
-
-# SPAWN, not fork: a forked child inherits the parent's resolved identity and
-# never re-registers. spawn re-imports this module in a fresh interpreter.
-_MP = multiprocessing.get_context("spawn")
-
-
-def run_stage(stage: str, *payload):
-    """Spawn a stage in a fresh interpreter, wait for it, return its result."""
-    parent, child = _MP.Pipe()
-    proc = _MP.Process(target=_stage_worker, args=(stage, payload, child), name=stage)
-    proc.start()
-    status, value = parent.recv()
-    proc.join(timeout=120)
-    logger.info(f"  {stage} ran as pid {proc.pid}")
-    if status == "err":
-        raise RuntimeError(f"{stage} failed: {value}")
-    return value
-
-
+@hexr.hexr_agent(
+    name="denial-review-orchestrator",
+    role="orchestrator",
+    tenant="pivot-demo",
+    a2a=True,
+    skills=[
+        {
+            "id": "denial-review",
+            "name": "Denial Review",
+            "description": (
+                "HIPAA-aware three-agent pipeline that analyzes a synthetic claim, "
+                "cites payer policy, and drafts an audit-ready denial-appeal letter. "
+                "Every step emits signed compliance_evidence rows for the auditor."
+            ),
+        },
+    ],
+    description="Denial-review pipeline. Send a (synthetic) claim JSON and receive an appeal draft written to the tenant S3 bucket.",
+)
 class DenialReviewPipeline:
     """Orchestrator for the denial-review crew."""
 
@@ -342,14 +299,13 @@ class DenialReviewPipeline:
 
         _verify_s3(self.s3, "pipeline")
 
-        # Each stage in its own process. The three classes used to run in the
-        # orchestrator's process, so every row they wrote carried whichever
-        # identity registered last (denial_writer) — three agents, one name.
-        # A stage now gets the identity of the class it instantiates, in a
-        # spawned interpreter, so an evidence row names the process that acted.
-        analysis = run_stage("analyze", claim)
-        policy = run_stage("review", claim, analysis)
-        appeal = run_stage("draft", claim, analysis, policy)
+        analyst = ClaimsAnalyst()
+        reviewer = PolicyReviewer()
+        writer = DenialWriter()
+
+        analysis = analyst.analyze(claim)
+        policy = reviewer.review(claim, analysis)
+        appeal = writer.draft(claim, analysis, policy)
 
         report = (
             "=== Denial-Review Appeal Draft ===\n"
@@ -390,36 +346,8 @@ class DenialReviewPipeline:
 # A2A Handler — receives messages from the A2A sidecar, runs the pipeline
 # ---------------------------------------------------------------------------
 
-@hexr.hexr_agent(
-    name="denial-review-orchestrator",
-    role="orchestrator",
-    tenant="pivot-demo",
-    a2a=True,
-    skills=[
-        {
-            "id": "denial-review",
-            "name": "Denial Review",
-            "description": (
-                "HIPAA-aware three-agent pipeline that analyzes a synthetic claim, "
-                "cites payer policy, and drafts an audit-ready denial-appeal letter. "
-                "Every step emits signed compliance_evidence rows for the auditor."
-            ),
-        },
-    ],
-    description="Denial-review pipeline. Send a (synthetic) claim JSON and receive an appeal draft written to the tenant S3 bucket.",
-)
 def handle_denial_request(message: Message) -> str:
-    """A2A handler: parse message body as claim JSON (or use synthetic default).
-
-    ONE PROCESS, ONE IDENTITY — and this is the process that is the
-    orchestrator. This decorator used to sit on ``_stage_worker``, which is
-    the CHILD's entrypoint, so every spawned stage registered twice: once as
-    the orchestrator on entry, then again as the stage class it instantiated.
-    The second registration won for signing, so evidence looked right, but
-    the child was the orchestrator for the window in between, the registrar
-    created two SPIRE entries per stage, and a tool call in that window would
-    have been attributed to the wrong agent.
-    """
+    """A2A handler: parse message body as claim JSON (or use synthetic default)."""
     body = message.text_content().strip()
     claim: dict | None = None
     if body:

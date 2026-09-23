@@ -1,0 +1,34 @@
+{
+  "name": "denial-review-crew-a2a",
+  "url": "http://denial-review-crew-a2a.tenant-pivot-demo.svc.cluster.local",
+  "version": "1.0.0",
+  "capabilities": {
+    "streaming": false,
+    "pushNotifications": false,
+    "stateTransitionHistory": false
+  },
+  "authentication": {
+    "schemes": [
+      "spiffe"
+    ]
+  },
+  "skills": [
+    {
+      "id": "denial-review",
+      "name": "Denial Review",
+      "description": "HIPAA-aware three-agent pipeline that analyzes a synthetic claim, cites payer policy, and drafts an audit-ready denial-appeal letter. Every step emits signed compliance_evidence rows for the auditor."
+    }
+  ],
+  "defaultInputModes": [
+    "text/plain"
+  ],
+  "defaultOutputModes": [
+    "text/plain"
+  ],
+  "hexr": {
+    "spiffeId": "spiffe://demo.hexr.dev/tenant/pivot-demo/agent/denial-review-crew-a2a",
+    "tenant": "pivot-demo",
+    "framework": "hexr-native"
+  },
+  "description": "Denial-review pipeline. Send a (synthetic) claim JSON and receive an appeal draft written to the tenant S3 bucket."
+}

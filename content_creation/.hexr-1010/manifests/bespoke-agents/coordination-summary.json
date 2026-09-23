@@ -1,0 +1,18 @@
+{
+  "version": "1.0",
+  "timestamp": 1788969330,
+  "framework": "unknown",
+  "coordination_metadata": {
+    "coordination_style": "unknown",
+    "agent_count": 3,
+    "hierarchy_depth": 1,
+    "detected_patterns": [],
+    "parent_child_relationships": [],
+    "agent_roles": [
+      "agent1",
+      "agent2",
+      "agent3"
+    ]
+  },
+  "_description": "Framework-level coordination metadata extracted from AST analysis."
+}

@@ -1,0 +1,72 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: hexr-agent
+  namespace: tenant-pivot-demo
+  labels:
+    hexr.io/tenant: "pivot-demo"
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: hexr-deployer
+  namespace: tenant-pivot-demo
+  labels:
+    hexr.io/tenant: "pivot-demo"
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: hexr-agent-role
+  namespace: tenant-pivot-demo
+rules:
+# Minimal permissions for agent operation
+- apiGroups: [""]
+  resources: ["pods"]
+  verbs: ["get", "list"]
+- apiGroups: [""]
+  resources: ["secrets"]
+  verbs: ["get"]
+  resourceNames: ["hexr-agent-config"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: hexr-deployer-role
+  namespace: tenant-pivot-demo
+rules:
+# Permissions for PID mapper job
+- apiGroups: [""]
+  resources: ["configmaps"]
+  verbs: ["create", "get", "update", "patch"]
+- apiGroups: [""]
+  resources: ["pods"]
+  verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: hexr-agent-binding
+  namespace: tenant-pivot-demo
+subjects:
+- kind: ServiceAccount
+  name: hexr-agent
+  namespace: tenant-pivot-demo
+roleRef:
+  kind: Role
+  name: hexr-agent-role
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: hexr-deployer-binding
+  namespace: tenant-pivot-demo
+subjects:
+- kind: ServiceAccount
+  name: hexr-deployer
+  namespace: tenant-pivot-demo
+roleRef:
+  kind: Role
+  name: hexr-deployer-role
+  apiGroup: rbac.authorization.k8s.io

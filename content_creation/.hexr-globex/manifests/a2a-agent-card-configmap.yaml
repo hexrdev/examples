@@ -1,0 +1,44 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: content-creation-crew-a2a-agent-card
+  namespace: tenant-globex-azure
+  labels:
+    hexr.io/component: a2a-agent-card
+    hexr.io/agent: "content-creation-crew-a2a"
+data:
+  agent.json: |
+    {
+      "name": "content-creation-crew-a2a",
+      "url": "http://content-creation-crew-a2a.tenant-globex-azure.svc.cluster.local",
+      "version": "1.0.0",
+      "capabilities": {
+        "streaming": false,
+        "pushNotifications": false,
+        "stateTransitionHistory": false
+      },
+      "authentication": {
+        "schemes": [
+          "spiffe"
+        ]
+      },
+      "skills": [
+        {
+          "id": "content-creation",
+          "name": "Content Creation",
+          "description": "Research a topic and produce polished, publication-ready content using a crew of research, writing, and editing agents."
+        }
+      ],
+      "defaultInputModes": [
+        "text/plain"
+      ],
+      "defaultOutputModes": [
+        "text/plain"
+      ],
+      "hexr": {
+        "spiffeId": "spiffe://demo.hexr.dev/tenant/globex-azure/agent/content-creation-crew-a2a",
+        "tenant": "globex-azure",
+        "framework": "hexr-native"
+      },
+      "description": "Content creation pipeline. Send a topic and receive a researched, written, and edited article."
+    }

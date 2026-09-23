@@ -1,0 +1,31 @@
+{
+  "version": "1.0",
+  "timestamp": 1788967342,
+  "pod_uid": "PLACEHOLDER_POD_UID",
+  "root_pid": 1000,
+  "process_tree": {
+    "1003": {
+      "pid": 1003,
+      "ppid": 1000,
+      "agent_name": "agent3",
+      "role": "agent3",
+      "framework": "bespoke",
+      "tenant": "pivot-demo",
+      "spiffe_id": "spiffe://hexr.internal/pivot-demo/bespoke/agent3/proc-1003",
+      "tools": [],
+      "resources": {},
+      "children": []
+    }
+  },
+  "_hexr_internal": {
+    "marker_file_pattern": "agent3-{pid}.marker",
+    "expected_argv_pattern": [
+      "python",
+      "denial_review_crew_a2a.py",
+      "--agent=agent3"
+    ],
+    "environment_markers": {
+      "HEXR_AGENT_ROLE": "agent3"
+    }
+  }
+}
