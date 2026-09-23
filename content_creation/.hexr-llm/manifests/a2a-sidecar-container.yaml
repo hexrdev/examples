@@ -1,0 +1,60 @@
+  - name: a2a-sidecar
+    image: 697675504955.dkr.ecr.us-east-1.amazonaws.com/hexr/hexr-a2a-sidecar:v1.0.0
+    args:
+      - "-port=8090"
+      - "-agent-port=8080"
+      - "-log-level=info"
+      - "-task-ttl-completed=1h"
+      - "-task-ttl-active=24h"
+      - "-task-timeout=5m"
+    env:
+    - name: HEXR_CACHE_REDIS_HOST
+      value: "hexr-credential-cache.hexr-system"
+    - name: HEXR_CACHE_REDIS_PORT
+      value: "6379"
+    - name: HEXR_CACHE_REDIS_PASSWORD
+      valueFrom:
+        secretKeyRef:
+          name: hexr-credential-cache
+          key: password
+          optional: true
+    - name: HEXR_AGENT_NAME
+      value: "denial-review-crew-a2a"
+    - name: OTEL_EXPORTER_OTLP_ENDPOINT
+      value: "otel-collector.hexr-system.svc.cluster.local:4317"
+    ports:
+    - containerPort: 8090
+      name: a2a
+      protocol: TCP
+    livenessProbe:
+      httpGet:
+        path: /health
+        port: 8090
+      initialDelaySeconds: 5
+      periodSeconds: 15
+    readinessProbe:
+      httpGet:
+        path: /readyz
+        port: 8090
+      initialDelaySeconds: 3
+      periodSeconds: 10
+    volumeMounts:
+    - name: a2a-agent-card
+      mountPath: /etc/hexr/agent-card
+      readOnly: true
+    resources:
+      requests:
+        cpu: "50m"
+        memory: "32Mi"
+      limits:
+        cpu: "200m"
+        memory: "128Mi"
+    securityContext:
+      runAsNonRoot: true
+      runAsUser: 65534
+      runAsGroup: 65534
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop:
+        - ALL
+      readOnlyRootFilesystem: true

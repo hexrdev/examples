@@ -1,0 +1,225 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: pivot-demo-denial-review-crew-a2a
+  namespace: tenant-pivot-demo
+  labels:
+    hexr.io/tenant: "pivot-demo"
+    hexr.io/agent: "denial_review_crew_a2a"
+    hexr.io/framework: "bespoke"
+    hexr.io/target: "development"
+    app: pivot-demo-denial-review-crew-a2a
+  annotations:
+    # Hexr Runtime integration
+    hexr.io/spire-registration: "auto"
+    hexr.io/credential-injection: "enabled"
+    hexr.io/process-monitoring: "enabled"
+    # Agent configuration
+    hexr.io/agent-name: "denial_review_crew_a2a"
+    hexr.io/resources: ""
+    hexr.io/cloud-providers: "aws"
+    hexr.io/framework-version: "latest"
+    # ENTERPRISE: PID mapping configuration
+    hexr.io/enterprise-pid-mapping: "enabled"
+    hexr.io/enhanced-attestor-ready: "true"
+spec:
+  # ENTERPRISE: Enable host PID namespace for container->host PID mapping
+  hostPID: true
+  # ENTERPRISE: Node affinity - prefer nodes with healthy SPIRE agents
+  # Uses pod affinity to colocate with running spire-agent pods (soft preference)
+  affinity:
+    podAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        podAffinityTerm:
+          labelSelector:
+            matchLabels:
+              app: hexr-spire-agent
+          topologyKey: kubernetes.io/hostname
+          namespaces:
+          - hexr-system
+  # ENTERPRISE: Security context for PID mapping
+  securityContext:
+    runAsNonRoot: false  # Required for host PID access
+    fsGroup: 1000
+  # hexr-sdk baked into Docker image — no init container needed (fast startup)
+  containers:
+  - name: agent
+    image: 697675504955.dkr.ecr.us-east-1.amazonaws.com/hexr/pivot-demo/denial-review-crew-a2a:development
+    imagePullPolicy: Always
+    env:
+    - name: HEXR_TENANT
+      value: "pivot-demo"
+    - name: HEXR_AGENT_NAME
+      value: "denial_review_crew_a2a"
+    - name: HEXR_FRAMEWORK
+      value: "bespoke"
+    - name: HEXR_TARGET
+      value: "development"
+    - name: HEXR_CREDENTIAL_INJECTOR_URL
+      value: "http://localhost:15001"
+    - name: HEXR_MOCK_MODE
+      value: "false"
+    - name: HEXR_CACHE_REDIS_HOST
+      value: "hexr-credential-cache.hexr-system"
+    - name: HEXR_CACHE_REDIS_PORT
+      value: "6379"
+    - name: HEXR_CACHE_REDIS_PASSWORD
+      valueFrom:
+        secretKeyRef:
+          name: hexr-credential-cache
+          key: password
+    - name: HEXR_TENANT_ID
+      value: "tenant-pivot-demo"
+    - name: OPENAI_API_KEY
+      valueFrom:
+        secretKeyRef:
+          name: hexr-llm-credentials
+          key: openai-api-key
+          optional: true
+    - name: DEEPSEEK_API_KEY
+      valueFrom:
+        secretKeyRef:
+          name: hexr-llm-credentials
+          key: deepseek-api-key
+          optional: true
+    - name: PYTHONUNBUFFERED
+      value: "1"
+    - name: HOME
+      value: "/tmp"
+    - name: POD_UID
+      valueFrom:
+        fieldRef:
+          fieldPath: metadata.uid
+    - name: OTEL_EXPORTER_OTLP_ENDPOINT
+      value: "http://otel-collector.hexr-system.svc.cluster.local:4317"
+    - name: OTEL_SERVICE_NAME
+      value: "hexr-agent-denial_review_crew_a2a"
+    - name: HEXR_OTEL_ENABLED
+      value: "true"
+    - name: AWS_DEFAULT_REGION
+      value: "us-east-1"
+    volumeMounts:
+    - name: hexr-context
+      mountPath: /tmp/hexr-context
+      # ENTERPRISE: Shared directory for process-context-{HOST_PID}.json files
+    - name: spire-socket
+      mountPath: /run/spire/sockets
+      readOnly: true
+      # ENTERPRISE: SPIRE Enhanced Attestor socket for HOST PID validation
+    - name: host-proc
+      mountPath: /host/proc
+      readOnly: true
+      # ENTERPRISE: Host /proc for container->host PID mapping
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: 400m
+        memory: 512Mi
+    securityContext:
+      runAsNonRoot: true
+      runAsUser: 1000
+      runAsGroup: 1000
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop:
+        - ALL
+      readOnlyRootFilesystem: false  # Hexr needs write access for process context
+    livenessProbe:
+      exec:
+        command:
+        - python
+        - -c 
+        - "import hexr; print('healthy')"
+      initialDelaySeconds: 30
+      periodSeconds: 30
+      timeoutSeconds: 10
+    readinessProbe:
+      exec:
+        command:
+        - python
+        - -c
+        - "import hexr; print('ready')"  
+      initialDelaySeconds: 10
+      periodSeconds: 10
+      timeoutSeconds: 5
+  # ENTERPRISE: PID Mapper Sidecar - discovers agent PIDs and generates JSON files
+  # WRITES TO HOST /tmp/hexr-context (hostPath) so SPIRE Agent can read them
+  - name: pid-mapper
+    image: 697675504955.dkr.ecr.us-east-1.amazonaws.com/hexr/pivot-demo/denial-review-crew-a2a:development
+    imagePullPolicy: Always
+    command: ["python"]
+    args:
+      - "/app/enterprise_pid_mapper.py"
+      - "--build-dir"
+      - "/app/manifests/bespoke-agents"
+      - "--output-dir"
+      - "/host-hexr-context"
+      - "--tenant"
+      - "pivot-demo"
+      - "--framework"
+      - "bespoke"
+      - "--pod-name"
+      - "pivot-demo-denial-review-crew-a2a"
+      - "--namespace"
+      - "tenant-pivot-demo"
+    env:
+    - name: HEXR_TENANT
+      value: "pivot-demo"
+    - name: HEXR_FRAMEWORK
+      value: "bespoke"
+    - name: HOME
+      value: "/tmp"
+    - name: POD_UID
+      valueFrom:
+        fieldRef:
+          fieldPath: metadata.uid
+    volumeMounts:
+    - name: hexr-context
+      mountPath: /tmp/hexr-context
+      # emptyDir for agent communication
+    - name: host-hexr-context
+      mountPath: /host-hexr-context
+      # hostPath for SPIRE Agent visibility
+    resources:
+      requests:
+        cpu: "50m"
+        memory: "64Mi"
+      limits:
+        cpu: "200m"
+        memory: "256Mi"
+    securityContext:
+      runAsNonRoot: false
+      runAsUser: 0
+      privileged: false
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop:
+        - ALL
+        add:
+        - SYS_PTRACE
+      readOnlyRootFilesystem: false
+  volumes:
+  - name: hexr-context
+    emptyDir: {}
+    # ENTERPRISE: Shared emptyDir for agent-to-mapper communication
+  - name: host-hexr-context
+    hostPath:
+      path: /tmp/hexr-context
+      type: DirectoryOrCreate
+    # ENTERPRISE: Host directory where SPIRE Agent reads JSON files
+  - name: spire-socket
+    hostPath:
+      path: /run/spire/sockets
+      type: Directory
+    # ENTERPRISE: SPIRE Enhanced Attestor socket
+  - name: host-proc
+    hostPath:
+      path: /proc
+      type: Directory
+    # ENTERPRISE: Host /proc filesystem for PID mapping validation
+  restartPolicy: OnFailure
+  serviceAccountName: hexr-agent
+  # GKE/EKS: Workload Identity / Node IAM role handles image pulls — no imagePullSecrets needed

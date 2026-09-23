@@ -1,0 +1,9 @@
+# Cloud provider dependencies
+boto3>=1.34.0
+
+# AI Framework dependencies
+openai>=1.0.0
+
+# System dependencies
+contextvars-extras>=0.1.0
+psutil>=5.9.0

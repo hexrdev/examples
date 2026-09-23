@@ -1,0 +1,3 @@
+  - name: a2a-agent-card
+    configMap:
+      name: denial-review-crew-a2a-agent-card

@@ -1,0 +1,3 @@
+  - name: a2a-agent-card
+    configMap:
+      name: content-creation-crew-a2a-agent-card

@@ -1,0 +1,24 @@
+{
+  "version": "1.0",
+  "build_time": 1788969917.937799,
+  "config": {
+    "agent_file": "denial_review_crew_a2a.py",
+    "tenant": "pivot-demo",
+    "target": "development",
+    "framework": "bespoke"
+  },
+  "analysis": {
+    "framework": "bespoke",
+    "agents": [],
+    "resources": [],
+    "cloud_providers": [
+      "aws"
+    ],
+    "dependencies": []
+  },
+  "artifacts": {
+    "dockerfile": ".hexr-0511/Dockerfile",
+    "manifests_dir": ".hexr-0511/manifests",
+    "image_name": "697675504955.dkr.ecr.us-east-1.amazonaws.com/hexr/pivot-demo/denial-review-crew-a2a:development"
+  }
+}

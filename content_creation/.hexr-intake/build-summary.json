@@ -1,0 +1,22 @@
+{
+  "version": "1.0",
+  "build_time": 1789849170.6731598,
+  "config": {
+    "agent_file": "claims_intake_a2a.py",
+    "tenant": "pivot-demo",
+    "target": "production",
+    "framework": "bespoke"
+  },
+  "analysis": {
+    "framework": "bespoke",
+    "agents": [],
+    "resources": [],
+    "cloud_providers": [],
+    "dependencies": []
+  },
+  "artifacts": {
+    "dockerfile": ".hexr-intake/Dockerfile",
+    "manifests_dir": ".hexr-intake/manifests",
+    "image_name": "697675504955.dkr.ecr.us-east-1.amazonaws.com/hexr/pivot-demo/claims-intake:production"
+  }
+}

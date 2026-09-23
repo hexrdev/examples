@@ -1,0 +1,31 @@
+{
+  "version": "1.0",
+  "timestamp": 1788920346,
+  "pod_uid": "PLACEHOLDER_POD_UID",
+  "root_pid": 1000,
+  "process_tree": {
+    "1002": {
+      "pid": 1002,
+      "ppid": 1000,
+      "agent_name": "agent2",
+      "role": "agent2",
+      "framework": "bespoke",
+      "tenant": "globex-azure",
+      "spiffe_id": "spiffe://hexr.internal/globex-azure/bespoke/agent2/proc-1002",
+      "tools": [],
+      "resources": {},
+      "children": []
+    }
+  },
+  "_hexr_internal": {
+    "marker_file_pattern": "agent2-{pid}.marker",
+    "expected_argv_pattern": [
+      "python",
+      "content_creation_crew_a2a.py",
+      "--agent=agent2"
+    ],
+    "environment_markers": {
+      "HEXR_AGENT_ROLE": "agent2"
+    }
+  }
+}

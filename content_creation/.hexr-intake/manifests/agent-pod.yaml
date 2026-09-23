@@ -1,0 +1,310 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: pivot-demo-claims-intake
+  namespace: tenant-pivot-demo
+  labels:
+    hexr.io/tenant: "pivot-demo"
+    hexr.io/agent: "claims-intake"
+    hexr.io/framework: "bespoke"
+    hexr.io/target: "production"
+    app: pivot-demo-claims-intake
+  annotations:
+    # Hexr Runtime integration
+    hexr.io/spire-registration: "auto"
+    hexr.io/credential-injection: "enabled"
+    hexr.io/process-monitoring: "enabled"
+    # Agent configuration
+    hexr.io/agent-name: "claims-intake"
+    hexr.io/resources: ""
+    hexr.io/cloud-providers: ""
+    hexr.io/framework-version: "latest"
+    # ENTERPRISE: PID mapping configuration
+    hexr.io/enterprise-pid-mapping: "enabled"
+    hexr.io/enhanced-attestor-ready: "true"
+spec:
+  # ENTERPRISE: Enable host PID namespace for container->host PID mapping
+  hostPID: true
+  # ENTERPRISE: Node affinity - prefer nodes with healthy SPIRE agents
+  # Uses pod affinity to colocate with running spire-agent pods (soft preference)
+  affinity:
+    podAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        podAffinityTerm:
+          labelSelector:
+            matchLabels:
+              app: hexr-spire-agent
+          topologyKey: kubernetes.io/hostname
+          namespaces:
+          - hexr-system
+  # ENTERPRISE: Security context for PID mapping
+  securityContext:
+    runAsNonRoot: false  # Required for host PID access
+    fsGroup: 1000
+  # hexr-sdk baked into Docker image — no init container needed (fast startup)
+  containers:
+  - name: agent
+    image: 697675504955.dkr.ecr.us-east-1.amazonaws.com/hexr/pivot-demo/claims-intake:0.5.28
+    imagePullPolicy: Always
+    env:
+    - name: HEXR_TENANT
+      value: "pivot-demo"
+    - name: HEXR_AGENT_NAME
+      value: "claims-intake"
+    - name: HEXR_FRAMEWORK
+      value: "bespoke"
+    - name: HEXR_TARGET
+      value: "production"
+    - name: HEXR_VAULT_URL
+      value: "http://hexr-runtime-vault.hexr-system.svc.cluster.local:8091"
+    - name: HEXR_CREDENTIAL_INJECTOR_URL
+      value: "http://localhost:15001"
+    - name: HEXR_CACHE_REDIS_HOST
+      value: "hexr-credential-cache.hexr-system"
+    - name: HEXR_CACHE_REDIS_PORT
+      value: "6379"
+    - name: HEXR_CACHE_REDIS_PASSWORD
+      valueFrom:
+        secretKeyRef:
+          name: hexr-credential-cache
+          key: password
+    - name: HEXR_TENANT_ID
+      value: "tenant-pivot-demo"
+    - name: OPENAI_API_KEY
+      valueFrom:
+        secretKeyRef:
+          name: hexr-llm-credentials
+          key: openai-api-key
+          optional: true
+    - name: DEEPSEEK_API_KEY
+      valueFrom:
+        secretKeyRef:
+          name: hexr-llm-credentials
+          key: deepseek-api-key
+          optional: true
+    - name: PYTHONUNBUFFERED
+      value: "1"
+    - name: HOME
+      value: "/tmp"
+    - name: POD_UID
+      valueFrom:
+        fieldRef:
+          fieldPath: metadata.uid
+    - name: OTEL_EXPORTER_OTLP_ENDPOINT
+      value: "http://otel-collector.hexr-system.svc.cluster.local:4317"
+    - name: OTEL_SERVICE_NAME
+      value: "hexr-agent-claims-intake"
+    - name: HEXR_OTEL_ENABLED
+      value: "true"
+    volumeMounts:
+    - name: hexr-context
+      mountPath: /tmp/hexr-context
+      # ENTERPRISE: Shared directory for process-context-{HOST_PID}.json files
+    - name: spire-socket
+      mountPath: /run/spire/sockets
+      readOnly: true
+      # ENTERPRISE: SPIRE Enhanced Attestor socket for HOST PID validation
+    - name: host-proc
+      mountPath: /host/proc
+      readOnly: true
+      # ENTERPRISE: Host /proc for container->host PID mapping
+    resources:
+      requests:
+        cpu: 200m
+        memory: 512Mi
+      limits:
+        cpu: 800m
+        memory: 1024Mi
+    securityContext:
+      runAsNonRoot: true
+      runAsUser: 1000
+      runAsGroup: 1000
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop:
+        - ALL
+      readOnlyRootFilesystem: false  # Hexr needs write access for process context
+    # Liveness probe.
+    #
+    # Same measurement as the readiness probe below: `import hexr` takes ~8s.
+    # A 10s timeout left two seconds of headroom, and a liveness probe that
+    # times out does not merely mark the pod unready — it RESTARTS the
+    # container. Under any load that reclaims CPU from the probe, this would
+    # have killed a healthy agent mid-run and looked like a crash loop in the
+    # SDK rather than a probe that was too tight.
+    #
+    # failureThreshold 3 at 60s means a genuinely hung process is restarted
+    # within about three minutes, while a slow import never is.
+    livenessProbe:
+      exec:
+        command:
+        - python
+        - -c
+        - "import hexr; print('healthy')"
+      initialDelaySeconds: 40
+      periodSeconds: 60
+      timeoutSeconds: 25
+      failureThreshold: 3
+    # Readiness probe.
+    #
+    # `import hexr` takes ~8 SECONDS in a real agent pod — the SDK resolves its
+    # SPIFFE identity and warms the credential cache at import time. The probe
+    # previously allowed 5, so it timed out on every attempt and the pod NEVER
+    # became ready, while working perfectly: fetching SVIDs, signing evidence,
+    # serving traffic. Measured 7.9s on AKS on 2026-09-18.
+    #
+    # The symptoms are quietly expensive. The pod shows 1/2 forever, it is
+    # excluded from Service endpoints, a Deployment rollout never completes,
+    # and anything counting READY pods reports zero agents on a cluster that
+    # is running them.
+    #
+    # 20s of timeout with 3 failures allowed gives ~60s before a genuinely
+    # wedged import is called unready, which is the right trade: this probe
+    # answers "has the SDK finished initialising", and that is slow by design.
+    readinessProbe:
+      exec:
+        command:
+        - python
+        - -c
+        - "import hexr; print('ready')"
+      initialDelaySeconds: 15
+      periodSeconds: 20
+      timeoutSeconds: 20
+      failureThreshold: 3
+  # Envoy sidecar: the agent calls localhost:15001; Envoy presents the pod's
+  # X.509-SVID over mTLS to credential-injector:8443. Without this container
+  # HEXR_CREDENTIAL_INJECTOR_URL points at nothing — every hexr_tool() call
+  # failed with "connection refused" on a production pod for 13 hours while
+  # the ConfigMap for it sat unused in the same manifests directory.
+  - name: envoy-sidecar
+    image: 697675504955.dkr.ecr.us-east-1.amazonaws.com/hexr/hexr-envoy-wrapper:v0.1.1
+    imagePullPolicy: IfNotPresent
+    env:
+    - name: POD_UID
+      valueFrom:
+        fieldRef:
+          fieldPath: metadata.uid
+    - name: POD_NAME
+      valueFrom:
+        fieldRef:
+          fieldPath: metadata.name
+    - name: POD_NAMESPACE
+      valueFrom:
+        fieldRef:
+          fieldPath: metadata.namespace
+    - name: HEXR_TENANT
+      value: "pivot-demo"
+    - name: HEXR_FRAMEWORK
+      value: "bespoke"
+    - name: PARENT_AGENT_NAME
+      value: "claims-intake"
+    - name: TRUST_DOMAIN
+      value: "agents.hexr.cloud"
+    - name: AUTO_REGISTRAR_URL
+      value: "http://hexr-auto-registrar.hexr-system.svc.cluster.local:8080"
+    - name: SPIFFE_ENDPOINT_SOCKET
+      value: "unix:///run/spire/sockets/agent.sock"
+    ports:
+    - name: mtls
+      containerPort: 8443
+    - name: health
+      containerPort: 8082
+    volumeMounts:
+    - name: envoy-config
+      mountPath: /etc/envoy
+      readOnly: true
+    - name: spire-socket
+      mountPath: /run/spire/sockets
+      readOnly: true
+    - name: hexr-context
+      mountPath: /var/run/secrets/hexr
+      readOnly: true
+    resources:
+      requests:
+        cpu: "100m"
+        memory: "128Mi"
+      limits:
+        cpu: "500m"
+        memory: "512Mi"
+  # ENTERPRISE: PID Mapper Sidecar - discovers agent PIDs and generates JSON files
+  # WRITES TO HOST /tmp/hexr-context (hostPath) so SPIRE Agent can read them
+  - name: pid-mapper
+    image: 697675504955.dkr.ecr.us-east-1.amazonaws.com/hexr/pivot-demo/claims-intake:0.5.28
+    imagePullPolicy: Always
+    command: ["python"]
+    args:
+      - "/app/enterprise_pid_mapper.py"
+      - "--build-dir"
+      - "/app/manifests/bespoke-agents"
+      - "--output-dir"
+      - "/host-hexr-context"
+      - "--tenant"
+      - "pivot-demo"
+      - "--framework"
+      - "bespoke"
+      - "--pod-name"
+      - "pivot-demo-claims-intake"
+      - "--namespace"
+      - "tenant-pivot-demo"
+    env:
+    - name: HEXR_TENANT
+      value: "pivot-demo"
+    - name: HEXR_FRAMEWORK
+      value: "bespoke"
+    - name: HOME
+      value: "/tmp"
+    - name: POD_UID
+      valueFrom:
+        fieldRef:
+          fieldPath: metadata.uid
+    volumeMounts:
+    - name: hexr-context
+      mountPath: /tmp/hexr-context
+      # emptyDir for agent communication
+    - name: host-hexr-context
+      mountPath: /host-hexr-context
+      # hostPath for SPIRE Agent visibility
+    resources:
+      requests:
+        cpu: "50m"
+        memory: "64Mi"
+      limits:
+        cpu: "200m"
+        memory: "256Mi"
+    securityContext:
+      runAsNonRoot: false
+      runAsUser: 0
+      privileged: false
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop:
+        - ALL
+        add:
+        - SYS_PTRACE
+      readOnlyRootFilesystem: false
+  volumes:
+  - name: hexr-context
+    emptyDir: {}
+    # ENTERPRISE: Shared emptyDir for agent-to-mapper communication
+  - name: host-hexr-context
+    hostPath:
+      path: /tmp/hexr-context
+      type: DirectoryOrCreate
+    # ENTERPRISE: Host directory where SPIRE Agent reads JSON files
+  - name: spire-socket
+    hostPath:
+      path: /run/spire/sockets
+      type: Directory
+  - name: envoy-config
+    configMap:
+      name: agent-envoy-sidecar-config
+    # ENTERPRISE: SPIRE Enhanced Attestor socket
+  - name: host-proc
+    hostPath:
+      path: /proc
+      type: Directory
+    # ENTERPRISE: Host /proc filesystem for PID mapping validation
+  restartPolicy: OnFailure
+  serviceAccountName: hexr-agent
+  # GKE/EKS: Workload Identity / Node IAM role handles image pulls — no imagePullSecrets needed
