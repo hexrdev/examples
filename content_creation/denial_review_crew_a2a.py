@@ -386,10 +386,6 @@ class DenialReviewPipeline:
         return report
 
 
-# ---------------------------------------------------------------------------
-# A2A Handler — receives messages from the A2A sidecar, runs the pipeline
-# ---------------------------------------------------------------------------
-
 @hexr.hexr_agent(
     name="denial-review-orchestrator",
     role="orchestrator",
@@ -408,6 +404,27 @@ class DenialReviewPipeline:
     ],
     description="Denial-review pipeline. Send a (synthetic) claim JSON and receive an appeal draft written to the tenant S3 bucket.",
 )
+def _agent_card() -> None:
+    """Carries the A2A agent card for `hexr build`. NEVER CALLED at runtime.
+
+    ONE PROCESS, ONE IDENTITY, and the server process already has one: the
+    container registers it under HEXR_AGENT_NAME on start. Decorating a
+    function that the server actually runs gave that process a SECOND name,
+    the marker on disk stopped matching its registration entry, and the
+    Workload API answered "no identity issued" for every tool call. The
+    pipeline then failed on `hexr_tool("aws_s3")` on 2026-09-23.
+
+    The decorator has to stay in the source because `hexr build` reads the
+    skills and description from it to generate the agent card. It must not
+    sit on anything the server invokes. An uncalled function satisfies both:
+    the analyzer sees it, the runtime never touches it.
+    """
+
+
+# ---------------------------------------------------------------------------
+# A2A Handler — receives messages from the A2A sidecar, runs the pipeline
+# ---------------------------------------------------------------------------
+
 def handle_denial_request(message: Message) -> str:
     """A2A handler: parse message body as claim JSON (or use synthetic default).
 
