@@ -43,9 +43,15 @@ spec:
     runAsNonRoot: false  # Required for host PID access
     fsGroup: 1000
   # hexr-sdk baked into Docker image — no init container needed (fast startup)
+  # Tenant agents must run where a SPIRE agent does. This cluster is shared
+  # with Kadence, whose GPU nodegroups carry no taint, and the Hexr agent
+  # DaemonSet is confined to hexr-ng-1. A pod outside that selection has no
+  # agent socket and therefore NO identity.
+  nodeSelector:
+    eks.amazonaws.com/nodegroup: hexr-ng-1
   containers:
   - name: agent
-    image: 697675504955.dkr.ecr.us-east-1.amazonaws.com/hexr/pivot-demo/claims-intake:0.5.28
+    image: 697675504955.dkr.ecr.us-east-1.amazonaws.com/hexr/pivot-demo/claims-intake:sdk-0.5.33
     imagePullPolicy: Always
     env:
     - name: HEXR_TENANT
@@ -230,7 +236,7 @@ spec:
   # ENTERPRISE: PID Mapper Sidecar - discovers agent PIDs and generates JSON files
   # WRITES TO HOST /tmp/hexr-context (hostPath) so SPIRE Agent can read them
   - name: pid-mapper
-    image: 697675504955.dkr.ecr.us-east-1.amazonaws.com/hexr/pivot-demo/claims-intake:0.5.28
+    image: 697675504955.dkr.ecr.us-east-1.amazonaws.com/hexr/pivot-demo/claims-intake:sdk-0.5.33
     imagePullPolicy: Always
     command: ["python"]
     args:
